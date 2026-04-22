@@ -1,0 +1,2 @@
+ChewTheFat/Resources/*.gguf filter=lfs diff=lfs merge=lfs -text
+ChewTheFat/Resources/*.sqlite filter=lfs diff=lfs merge=lfs -text
