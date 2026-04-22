@@ -14,9 +14,11 @@ chat interface, and progress charts"
 
 A new user opens the app for the first time. The health coach greets them and walks them
 through accepting the EULA/Terms of Service, setting their preferred units (metric or
-imperial), filling in their profile (age, height, sex), setting a weight-change goal
-(weekly rate and method), and optionally setting macro targets. After completing setup,
-the user lands on the main chat screen ready to start logging.
+imperial), filling in their profile (birth year, height, sex), selecting a weight-change
+intent (lose / maintain / gain) with ideal-weight and activity-level inputs, and
+reviewing the computed daily calorie and macro targets. The entire flow is rendered
+inside the chat thread using interactive widgets — there is no separate wizard UI.
+After completing setup, the user lands on the main chat screen ready to start logging.
 
 **Why this priority**: Without a complete profile the app cannot calculate calorie or
 macro targets. All downstream value depends on this flow being smooth and completable.
@@ -30,20 +32,28 @@ and goals record.
 1. **Given** the app is freshly installed with no data, **When** the user opens the app,
    **Then** the health coach initiates the onboarding flow with a welcome message and
    asks the user to choose their preferred units (metric/imperial) via interactive widgets.
-2. **Given** the user has chosen units and provided age, height, and sex,
-   **When** they confirm their profile, **Then** the app automatically calculates a
-   recommended daily calorie target and macro split and presents them for approval.
-3. **Given** the user accepts or adjusts their goals, **When** they complete onboarding,
+2. **Given** the user has chosen units and provided birth year, height, and biological
+   sex, **When** they confirm their profile, **Then** the coach advances to the goals
+   step (weight-change intent, ideal weight, activity level).
+3. **Given** the user enters height in a free-form format (e.g., `5' 11"`, `5-11`,
+   `5 ft 11 in`, or `180 cm`), **When** the agent parses the input, **Then** it
+   normalises the value to the stored unit (cm) and echoes the parsed result for
+   confirmation; if parsing is ambiguous, the agent asks for clarification.
+4. **Given** the user selects a weight-change intent (Lose / Maintain / Gain) and
+   provides an ideal weight and activity level, **When** they confirm, **Then** the app
+   computes a recommended daily calorie target, macro split, and a projected
+   goal-achievement date, and presents them for approval.
+5. **Given** the user accepts or adjusts their goals, **When** they complete onboarding,
    **Then** their profile, goals, and preferences are persisted locally and they are
    taken to the main chat screen.
-4. **Given** the user abandons onboarding mid-flow, **When** they reopen the app,
+6. **Given** the user abandons onboarding mid-flow, **When** they reopen the app,
    **Then** the onboarding resumes from where they left off.
 
 ---
 
 ### User Story 2 — Log a Meal via Chat (Priority: P1)
 
-The user types (or speaks) a description of what they ate into the chat interface. The
+The user types a description of what they ate into the chat interface. The
 health coach agent parses the input, searches the local food databases, and presents a
 Meal Card widget showing each identified food item with its quantity, serving unit, and
 calorie count. The user can adjust quantities and serving sizes inline. The coach shows
@@ -59,11 +69,16 @@ log, and see updated macro totals — all without leaving the chat screen.
 **Acceptance Scenarios**:
 
 1. **Given** the user types a natural-language meal description (e.g., "3 eggs, 1 slice
-   turkey bacon, grapefruit"), **When** the agent processes the input, **Then** a Meal
-   Card widget appears in the chat listing each food item, its quantity, serving unit,
-   and calorie contribution.
-2. **Given** a Meal Card is displayed, **When** the user taps a serving unit or quantity,
-   **Then** they can adjust it inline and the calorie/macro totals update immediately.
+   turkey bacon, grapefruit"), **When** the agent is processing, **Then** a typing
+   indicator is displayed in the chat until the first response token arrives; **Then** a
+   Meal Card widget appears containing a meal-slot header (Breakfast/Lunch/Dinner/Snack)
+   with total calories, one row per identified item showing quantity, a serving-unit
+   dropdown, food name, and per-item calories, plus inline Protein/Carbs/Fat progress
+   bars with numeric labels showing the meal's contribution toward daily targets.
+2. **Given** a Meal Card is displayed, **When** the user taps the quantity field or the
+   serving-unit dropdown on a row, **Then** they can change it inline and the per-item
+   and meal total calories/macros update immediately; the inline macro progress bars
+   re-render without leaving the chat.
 3. **Given** the user confirms the meal, **When** the entry is saved, **Then** the coach
    responds with the updated remaining daily calories and a macro progress summary.
 4. **Given** a food item is not found in USDA or Open Food Facts databases,
@@ -172,6 +187,85 @@ in the next macro summary.
 2. **Given** the user requests a profile update (e.g., updated height or activity level),
    **When** the agent confirms the change, **Then** the profile record is updated and
    macro targets are recalculated accordingly.
+3. **Given** the user opens the dedicated Goals screen from the Dashboard, **When** they
+   toggle `Daily Targets` between `Auto` and `Manual`, **Then** in `Auto` mode the
+   calorie target is computed from profile + weekly-change rate + activity level and
+   macro gram targets are derived from a default split, and in `Manual` mode the user
+   can directly enter a calorie number and drag Protein/Carbs/Fat percentage sliders
+   (which MUST sum to 100%) that are converted to gram targets.
+4. **Given** the user opens the dedicated Profile screen, **When** they edit birth year,
+   height, or biological sex, **Then** the profile record is updated and, if `Auto`
+   mode is active, the daily calorie target and macro gram targets are recomputed.
+5. **Given** the user opens the dedicated Settings screen, **When** they toggle the
+   display unit system (kg/cm ↔ lbs/ft), **Then** the preference is persisted and all
+   weight, height, and macro values in the app re-render in the selected unit without
+   changing the stored canonical values (kg / cm / g).
+
+---
+
+### User Story 7 — Home Dashboard (Priority: P1)
+
+From the chat screen, the user can open a Dashboard surface that summarises their
+overall progress at a glance: a weight Trajectory chart (historical actual vs. projected
+goal line), a Today panel showing remaining calories and per-macro progress bars, a list
+of today's meals with per-meal calorie totals, quick-access chips for Goals / Profile /
+Settings, and a Chat history list of prior sessions.
+
+**Why this priority**: Users need a single non-conversational surface to see their
+trajectory, today's numbers, and navigate to structured settings. Logging compliance is
+reinforced by immediate visibility of remaining daily budget.
+
+**Independent Test**: A user with at least one weight entry, one logged meal, and one
+prior chat session can open the Dashboard and see the Trajectory chart, Today summary
+(calories remaining + macro bars), today's meals, navigation chips, and the Chat
+history list populated correctly.
+
+**Acceptance Scenarios**:
+
+1. **Given** the user has weight history, **When** they open the Dashboard,
+   **Then** the Trajectory chart renders: the solid-filled region represents logged
+   weight history with a marker at the most recent value, and the faded region
+   represents the projected trajectory from the current weight to the ideal weight over
+   time, along with axis labels for the time range.
+2. **Given** the user has logged meals today, **When** the Today panel renders,
+   **Then** it shows "N Calories left" (target minus consumed), Protein/Carbs/Fat
+   progress bars labelled "consumed/target g", and a list of today's entries grouped
+   by meal slot with the slot's total calories on the right.
+3. **Given** a macro has been exceeded, **When** the Today panel renders,
+   **Then** the exceeded macro's progress bar is visually distinguished (e.g., amber
+   fill) to signal the overage.
+4. **Given** the Dashboard is open, **When** the user taps the Goals, Profile, or
+   Settings chip, **Then** the corresponding dedicated editor screen opens.
+5. **Given** the Dashboard is open, **When** the user dismisses it, **Then** they
+   return to the chat surface at the same scroll position they left.
+
+---
+
+### User Story 8 — Browse and Resume Chat Sessions (Priority: P3)
+
+Each conversation is persisted as a named Session. From the Dashboard's Chat history
+list, the user can open a prior session to review its messages and continue the
+conversation, or start a new session.
+
+**Why this priority**: Multi-session history lets users revisit prior coaching
+conversations and keep distinct threads (e.g., "Weight and food logging", "Workout
+planning") without one long scroll.
+
+**Independent Test**: A user with two or more persisted sessions can see both listed
+under "Chat history" on the Dashboard, open one, and append a new message that is
+saved into that session rather than a new one.
+
+**Acceptance Scenarios**:
+
+1. **Given** the user has prior sessions, **When** they open the Dashboard,
+   **Then** the Chat history section lists each session by name with a relative-date
+   stamp (e.g., "Yesterday") of its last message, ordered most-recent first.
+2. **Given** the user taps a session in Chat history, **When** the session opens,
+   **Then** the chat surface loads that session's messages in order and any new
+   messages the user sends are appended to that session.
+3. **Given** the user is in an existing session, **When** they explicitly start a new
+   session, **Then** a new Session record is created and subsequent messages are
+   attached to it.
 
 ---
 
@@ -187,6 +281,17 @@ in the next macro summary.
   a clear error and disable food logging until the issue is resolved.
 - What if the user logs multiple entries for the same meal slot? All entries for that
   slot are summed; no deduplication occurs unless the user explicitly removes an entry.
+- What if the user enters a height string the agent cannot parse (e.g., "tall")? The
+  agent MUST ask for clarification rather than store a null or zero value.
+- What if the manual macro percentage sliders are changed such that the sum ≠ 100%?
+  The save action MUST be blocked or the sliders MUST auto-rebalance (pinned slider
+  plus redistribution across the other two). Gram targets are never persisted from an
+  invalid sum.
+- What if the Dashboard is opened with no weight history? The Trajectory chart MUST
+  render an empty state with a prompt to log the first weight rather than an empty
+  axis frame.
+- What if the Dashboard is opened with no prior sessions? The Chat history section
+  MUST be hidden or render an empty state rather than an empty list frame.
 
 ---
 
@@ -200,23 +305,41 @@ in the next macro summary.
   interaction surface for logging, coaching, and progress review.
 - **FR-003**: The health coach agent MUST support rendering the following interactive
   widget types inline within the chat: Meal Card, Macro Chart, Weight Graph, and
-  quick-log / confirmation dialogs.
+  quick-log / confirmation dialogs. A single agent message MAY contain zero or more
+  widgets; when multiple widgets are attached, they MUST render in the order specified
+  by the agent (e.g., a Meal Card followed by a Macro Chart summarising the impact).
 - **FR-003a**: The orchestration layer MUST intercept widget payloads produced by the
   agent before they are streamed to the chat UI; widgets MUST be rendered as native
   interactive components, not as raw text or JSON.
 - **FR-003b**: Tool calls and internal agent reasoning MUST NOT be displayed to the user
   in the chat interface; only finalized text messages and rendered widgets are visible.
-- **FR-004**: The app MUST support food search against local USDA FoodData Central and
-  Open Food Facts SQLite databases without requiring network access.
+- **FR-004**: The app MUST support food search via a RAG tool that queries, in
+  precedence order: (1) the user's SwiftData `FoodEntry` catalog (foods the user has
+  previously logged or manually entered, ranked by query match × log frequency ×
+  recency), (2) the local USDA FoodData Central SQLite reference DB, (3) the local
+  Open Food Facts SQLite reference DB, and (4) if and only if the user has opted in,
+  the web-search fallback (FR-014). Sources (1)–(3) MUST succeed without any network
+  access. The bundled USDA and Open Food Facts databases are **read-only reference
+  sources** for the RAG tool only; they MUST NOT be read directly by display or
+  logging code.
+- **FR-004a**: When the user confirms a logged food sourced from USDA, Open Food Facts,
+  or the web-search fallback, the app MUST promote the selection into SwiftData by
+  creating (or reusing, via `(source, sourceRefId)` uniqueness) a `FoodEntry` record
+  and copying the associated servings into SwiftData `Serving` records. All subsequent
+  reads (LoggedFood, Meal Card, macro totals, history search) MUST come from
+  SwiftData; reference-DB rows MUST NOT be joined against SwiftData at query time.
+  This guarantees that a reference-DB update cannot retroactively mutate any historical
+  log's nutrition.
 - **FR-005**: The app MUST automatically calculate macro totals (calories, protein,
   carbohydrates, fat, fiber) from logged food entries using data from the reference
   databases.
 - **FR-006**: The app MUST support logging weight entries with a date, accessible from
   the chat interface via a widget and from a dedicated logging surface.
 - **FR-007**: The app MUST persist all user data (profile, goals, food logs, weight logs,
-  session logs, memories) locally using Core Data.
-- **FR-008**: The app MUST support a user profile containing: age, height, sex, preferred
-  units (metric/imperial), and activity level.
+  session logs, memories) locally using SwiftData (`@Model` types over the app's
+  `ModelContainer`).
+- **FR-008**: The app MUST support a user profile containing: birth year (see FR-026),
+  height, biological sex, preferred units (metric/imperial), and activity level.
 - **FR-009**: The app MUST support user goals containing: weekly weight-change method
   (manual or automatic), weekly weight-change target, macro targets (calculated or
   manual), calorie target (calculated or manual).
@@ -238,24 +361,80 @@ in the next macro summary.
 - **FR-016a**: The app MUST support Dynamic Type across all text in the interface,
   including chat messages, widget labels, macro values, food names, and chart
   annotations. No text element MAY use a fixed, non-scalable font size.
-- **FR-017**: The local data store MUST support automatic lightweight migration across
-  app versions wherever the schema change permits it. Breaking schema changes MUST use
-  manual mapping migrations. User data MUST NOT be silently destroyed or reset during
-  any app update.
+- **FR-017**: The local data store MUST support automatic (lightweight) schema migration
+  across app versions wherever the change is additive and backwards-compatible. Breaking
+  schema changes MUST be expressed as a SwiftData `VersionedSchema` with a custom
+  `MigrationStage` in the app's `MigrationPlan`. User data MUST NOT be silently
+  destroyed or reset during any app update.
+- **FR-018**: The app MUST provide a Dashboard surface, reachable from the chat screen,
+  containing: (a) a Trajectory weight chart with a solid-filled historical region, a
+  marker at the current weight, and a faded projected region extending to the ideal
+  weight; (b) a Today panel with remaining-calories headline, per-macro progress bars,
+  and today's meal entries grouped by slot; (c) navigation chips to Goals, Profile, and
+  Settings; (d) a Chat history list of prior sessions.
+- **FR-019**: The app MUST provide dedicated editor screens for Goals, Profile, and
+  Settings reachable from the Dashboard chips, in addition to conversational editing
+  via chat (FR-002). Edits made on these screens MUST apply the same validation and
+  recomputation as chat-initiated edits.
+- **FR-020**: The Goals screen MUST support a `Daily Targets` toggle between `Auto`
+  (calorie and macro gram targets derived from profile, weekly-change rate, and
+  activity level) and `Manual` (user-entered calorie number and Protein/Carbs/Fat
+  percentage sliders that MUST sum to 100% and are converted to gram targets).
+- **FR-021**: User goals MUST include an `idealWeight` value entered during onboarding
+  and editable on the Goals screen. The app MUST compute and display a projected
+  goal-achievement date derived from current weight, ideal weight, and weekly-change
+  rate.
+- **FR-022**: *(Deferred to post-v1.)* Voice input via the system dictation microphone
+  in the chat input bar is out of scope for v1. The microphone icon in the chat input
+  bar, if rendered, MUST be hidden or disabled in v1 and MUST NOT accept input.
+- **FR-023**: The chat input bar MUST accept free-form height entries during onboarding
+  and profile edits (e.g., `5' 11"`, `5-11`, `5 ft 11 in`, `180 cm`) and normalise them
+  to cm; unparseable input MUST trigger a clarification prompt (see Edge Cases).
+- **FR-024**: The Settings screen MUST allow the user to change the display unit
+  system (metric/imperial) without altering stored canonical values, and MUST provide
+  a notifications preferences surface that controls the schedule and enablement of the
+  proactive coach prompts defined in FR-012.
+- **FR-025**: The app MUST support multiple named chat sessions. A session MUST be
+  listable from the Dashboard's Chat history, openable to resume with its prior
+  messages loaded, and explicitly creatable as a new session. Messages MUST be scoped
+  to exactly one session.
+- **FR-026**: User profile MUST store birth year rather than a static age; display age
+  is derived from birth year and the current date so values remain correct across
+  year boundaries without user re-entry.
+- **FR-027**: While the agent is processing a user message (after submit, before the
+  first streamed token), the chat surface MUST display a typing indicator. The
+  indicator MUST be removed as soon as the first response token is rendered (see
+  SC-002a).
 
 ### Key Entities
 
-- **UserProfile**: Age, height, sex, preferred units (metric/imperial), activity level.
-- **UserGoals**: Weight-change method, weekly target, macro targets (protein/carbs/fat),
-  calorie target, all calculated or manual.
+- **UserProfile**: Birth year (age derived), height, biological sex, preferred units
+  (metric/imperial), activity level.
+- **UserGoals**: Weight-change method, weekly target, ideal weight, macro targets
+  (protein/carbs/fat, stored in grams; manual mode additionally captures the percentage
+  split entered by the user), calorie target, projected goal-achievement date (derived,
+  not stored), all auto-calculated or manually set.
 - **Session**: Conversation session with name, creation date, last message date, and
   session goal.
-- **Message**: DateTime, author (User/Bot), content (text and/or widget references),
-  optional linked food log ID, optional linked weight log ID.
-- **FoodEntry**: Name, description, data source(s) (USDA / Open Food Facts).
-- **Serving**: Associated FoodEntry, measurement name (e.g., "1 Cup"), calories,
-  protein (g), carbs (g), fat (g), fiber (g).
-- **LoggedFood**: FoodEntry reference, date, quantity, meal slot, selected serving.
+- **Message**: DateTime, author (User/Bot), optional text content, ordered list of
+  zero or more attached widgets, optional linked food log, optional linked weight log.
+- **MessageWidget**: Parent message, display order, widget type (`mealCard`,
+  `macroChart`, `weightGraph`, `quickLog`), JSON payload. A message may carry
+  multiple widgets rendered in order.
+- **FoodEntry** (SwiftData, user-owned catalog): Name, optional detail, source
+  (`usda` / `offs` / `manual` / `web`), optional source reference ID, created-at,
+  last-logged-at, log count. Promoted from a RAG reference source on first log, or
+  created directly for manual entries. Reused on subsequent logs via
+  `(source, sourceRefId)` uniqueness.
+- **Serving** (SwiftData, user-owned): Measurement name (e.g., "1 Cup"), calories,
+  protein (g), carbs (g), fat (g), fiber (g). Belongs to a FoodEntry and stores the
+  nutrition snapshot used by any LoggedFood that selects it.
+- **LoggedFood**: References a FoodEntry and a specific Serving; carries only
+  log-specific facts (date, meal slot, quantity multiplier). All nutrition values are
+  read from the referenced Serving — no denormalised fields.
+- **Reference Food DBs** (GRDB read-only, RAG sources only): USDA FoodData Central
+  and Open Food Facts SQLite files. Consumed by the food-search RAG tool; never read
+  by display or logging code; never written to at runtime.
 - **WeightEntry**: Weight value, date.
 - **DailySummary**: Date, summary content (generated by agent).
 - **Memories**: Agent-maintained memory entries with date and content.
@@ -301,6 +480,40 @@ in the next macro summary.
 - Q: Is Dynamic Type support required? → A: Full Dynamic Type support required across all text in the app, including widget labels and chart annotations.
 - Q: Is user data export (food/weight logs) required in the initial version? → A: No export requirement in the initial version; data portability is deferred to a future release.
 
+### Session 2026-04-21 (Design Review)
+
+- Q: The chat input bar shows a camera icon across every screen. What is its intended
+  function for v1? → A: **Deferred to post-v1.** Both the mic (voice dictation) and
+  camera affordances in the Figma are aspirational; in v1 the camera icon is either
+  hidden or rendered as a disabled visual placeholder and performs no action. Photo
+  recognition, image attachment, and camera-based logging are out of scope for v1.
+- Q: Should profile store birth year or age? → A: **Birth year**, so the derived age
+  remains accurate across calendar years without user re-entry.
+- Q: How are manual macro targets captured — grams directly, or percentages converted
+  to grams? → A: **Percentages via sliders** that MUST sum to 100%, converted to grams
+  using the current calorie target (4 kcal/g protein, 4 kcal/g carbs, 9 kcal/g fat).
+- Q: Is the Dashboard a separate screen, or a widget rendered inline in chat? → A:
+  **Separate screen**, reachable from chat, with its own navigation chips to Goals /
+  Profile / Settings. The chat widgets (Meal Card, Macro Chart, Weight Graph) remain
+  inline in the conversation and are not the same surface as the Dashboard.
+- Q: Dashboard widget data binding — do widgets re-render live from the store, or
+  display a snapshot captured at message time? → A: **Live from SwiftData.** The
+  Dashboard's Trajectory, Today (macro progress), and today's-meals list all bind
+  directly to the repositories and react to subsequent edits. Chat-embedded widgets
+  carry **references** (e.g., `loggedFoodIds`, `date`, `dateRange`) in their
+  `MessageWidget.payload` — not dense nutrition snapshots — and resolve those
+  references against SwiftData at render time. A user edit to an underlying log is
+  reflected in every surface that presents it.
+- Q: Persistence framework — Core Data or SwiftData? → A: **SwiftData.** With an
+  iOS 26.0+ minimum the SwiftData implementation is past its early-version issues,
+  matches Apple's current direction, and fits the project's main-actor-by-default
+  concurrency model. Trade-off accepted: no native FTS5. The user catalog stays
+  small, so `#Predicate` text matching on `FoodEntry.searchTokens` is sufficient;
+  a supplementary search index may be introduced later if catalog size demands it.
+- Q: Minimum deployment target — iOS 17 (per the original constitution) or iOS 26
+  (per the scaffold)? → A: **iOS 26.0+**, ratified via the constitution 1.0.1
+  amendment. Lower targets are not supported.
+
 ## Assumptions
 
 - The LLM model file (Apple MLX or llama.cpp compatible) is bundled with the app or
@@ -320,6 +533,9 @@ in the next macro summary.
   maintained exclusively in Core Data.
 - No app-level encryption of stored data is required; the app relies on iOS platform
   default file protection. No regulated clinical data (HIPAA, GDPR) handling is in scope.
-- Barcode scanning and photo-based food recognition are not included in the initial
-  version (voice input via system dictation is allowed as it uses on-device processing).
+- Barcode scanning is not included in the initial version. Voice dictation via the
+  microphone icon is **deferred to post-v1** per the 2026-04-21 clarification; the
+  icon is either hidden or shown as a disabled placeholder in v1. Photo-based food
+  recognition, image attachment, and the camera icon are likewise deferred to
+  post-v1.
 - Data export (CSV, JSON, HealthKit) is out of scope for the initial version.

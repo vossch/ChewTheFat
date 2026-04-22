@@ -84,6 +84,45 @@ only network operation in the app.
 
 ---
 
+## 3a. Food Storage Boundary (Reference ↔ SwiftData)
+
+**Decision**: The bundled `usda.sqlite` and `offs.sqlite` are **read-only RAG
+sources** only. Any food the user logs (or manually enters) is promoted into
+SwiftData as a `FoodEntry` + `Serving` pair; every subsequent read comes from
+SwiftData.
+
+**Rationale**:
+- **Historical integrity**: if a reference DB is refreshed in a later app version, a
+  user's prior macro totals must not shift. Copying the serving rows into SwiftData at
+  log time freezes the nutrition values for that log.
+- **RAG recency signal**: storing the user's catalog in SwiftData gives the RAG tool
+  a first-class source ranked by `logCount` + `lastLoggedAt`. Returning foods surface
+  above generic reference hits, which is the dominant logging pattern ("I ate the
+  same breakfast again").
+- **Uniform display path**: UI code reads only from SwiftData repositories. No join
+  between GRDB and SwiftData is needed at render time, simplifying threading and
+  removing a class of cross-store consistency bugs.
+- **Manual-entry symmetry**: user-authored foods use the exact same `FoodEntry` /
+  `Serving` models as promoted foods, with `source = "manual"`. One code path for
+  both.
+
+**Mechanism**:
+- RAG retrieval order: `UserHistorySource` (SwiftData) → `USDAFoodSource` (GRDB) →
+  `OpenFoodFactsSource` (GRDB) → `WebSearchFallback` (opt-in network).
+- Deduplication on promotion: `(source, sourceRefId)` is unique in SwiftData — a
+  second log of the same reference food reuses the existing `FoodEntry`, bumps
+  `logCount` and `lastLoggedAt`, and does not re-copy the servings.
+
+**Alternatives considered**:
+- Keep reference DBs as the source of truth and store only an ID in `LoggedFood`:
+  rejected because reference-DB updates could silently alter historical logs, and the
+  UI would need cross-store joins at every render.
+- Denormalise per-serving macros onto `LoggedFood`: rejected as schema debt — it
+  bloats the log table, prevents users from editing the serving definition of a food
+  they own, and makes the RAG history source harder to implement.
+
+---
+
 ## 4. Orchestrator & Streaming Architecture
 
 **Decision**: Custom Swift orchestrator wrapping llama.cpp streaming with tool-call
@@ -149,19 +188,50 @@ The `ContextManager`:
 
 ---
 
-## 7. Core Data Migration Strategy
+## 7. SwiftData Schema & Migration Strategy
 
-**Decision**: NSPersistentContainer with `NSMigratePersistentStoresAutomatically`
-and `NSInferMappingModelAutomatically` for lightweight migration; manual
-`NSMappingModel` for breaking changes.
+**Decision**: User data is persisted with SwiftData. The app owns a single
+`ModelContainer` built from a `VersionedSchema` chain and a `MigrationPlan`.
+Additive or lightweight schema changes (new attribute, relaxed constraint, renamed
+property with `@Attribute(originalName:)`) ride SwiftData's automatic inference.
+Breaking changes are expressed as a new `VersionedSchema` with an explicit
+`MigrationStage.custom(...)` that runs a `willMigrate` / `didMigrate` pair.
+
+**Why SwiftData (not Core Data)**:
+- iOS 26.0+ baseline (constitution 1.0.1) puts us past every early-SwiftData issue
+  — three full OS versions after SwiftData's introduction.
+- `@Model` types match the project's Swift-first concurrency defaults
+  (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`) and compose cleanly with
+  `ModelActor` for background work.
+- Apple is investing in SwiftData; Core Data is maintenance-only. Staying on the
+  actively-invested stack reduces long-tail platform-drift risk.
+- The scaffold already uses SwiftData; flipping to Core Data would be throwaway
+  work.
+
+**Trade-offs accepted**:
+- **No native FTS5.** SwiftData exposes no FTS5 virtual-table surface. `FoodEntry`
+  keeps a `searchTokens: String` derived attribute; `UserHistorySource` queries it
+  via `#Predicate` with `.contains`. Adequate for personal catalog sizes; a
+  supplementary GRDB FTS5 index over the same SQLite file is the documented escape
+  hatch if needed later.
+- **Less expressive migrations.** `MigrationPlan` does not cover every transform
+  `NSMappingModel` does. For anything pathological we fall back to pulling rows
+  into a background context, transforming in Swift, and writing into the new
+  schema — still simpler than Core Data for typical shape changes.
 
 **Process for breaking changes**:
-1. Increment model version in `.xcdatamodeld`.
-2. Write a custom `NSEntityMigrationPolicy` subclass.
-3. Test migration from all prior versions in the test suite before shipping.
+1. Define the new `VersionedSchema` alongside the prior one; both compile into the
+   app so migration code can reference both schemas' types.
+2. Add a `MigrationStage.custom(fromVersion:toVersion:willMigrate:didMigrate:)` to
+   `MigrationPlan` that transforms data as needed.
+3. Unit-test the migration end-to-end against fixtures of every previously-shipped
+   schema version; block release if any path fails.
 
-User data is never wiped on migration failure; the app surfaces a recoverable error
-dialog and falls back to the last known-good store (copy kept at migration start).
+**Failure policy**: on migration error the app MUST surface a recoverable error
+dialog and MUST NOT wipe the store. The pre-migration store file is snapshotted
+before the `ModelContainer` is opened; on failure the app boots against the
+snapshot and prompts the user to retry (or contact support with an exportable
+diagnostic bundle — export itself is post-v1).
 
 ---
 

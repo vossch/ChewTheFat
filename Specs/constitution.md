@@ -96,11 +96,14 @@ beautiful and readable increase engagement and reinforce healthy behaviors.
 - **UI Framework**: SwiftUI (primary), UIKit (when SwiftUI is insufficient)
 - **On-Device LLM**: Apple MLX or llama.cpp via Swift bindings (decision to be finalized
   in first feature plan)
+- **User Data Persistence**: SwiftData (`@Model` types over SQLite). Lightweight schema
+  changes ride Apple's automatic inference; breaking changes use `VersionedSchema` +
+  `MigrationPlan`.
 - **Food Reference Data**: SQLite (USDA FoodData Central + Open Food Facts), accessed via
-  GRDB or SQLite.swift
+  GRDB. Read-only; consumed only by the food-search RAG tool (see spec FR-004 / FR-004a).
 - **Charts**: Swift Charts (Apple native framework)
-- **Minimum Deployment Target**: iOS 17.0+ (required for Swift Charts maturity and latest
-  SwiftUI APIs)
+- **Minimum Deployment Target**: iOS 26.0+ (enables mature SwiftData, latest SwiftUI
+  APIs, and Swift Charts)
 - **Design Tokens**: `DesignTokens.swift` in the main app target
 - **Color Assets**: `Assets.xcassets` color set entries; semantic naming required
   (e.g., `colorBackgroundPrimary`, not `colorGray100`)
@@ -141,4 +144,11 @@ implementation begins.
 **Compliance**: All pull requests MUST be reviewed against this constitution. Violations
 MUST be resolved before merge, or formally justified in the Complexity Tracking table.
 
-**Version**: 1.0.0 | **Ratified**: 2026-04-20 | **Last Amended**: 2026-04-20
+**Version**: 1.0.1 | **Ratified**: 2026-04-20 | **Last Amended**: 2026-04-21
+
+**Amendment history**:
+- 1.0.1 (2026-04-21) — PATCH. Raised minimum deployment target from iOS 17.0+ to
+  iOS 26.0+. Explicitly adopted SwiftData for user-data persistence (the prior
+  version was silent on persistence framework). GRDB reaffirmed as the read-only
+  access path for bundled USDA / Open Food Facts SQLite reference files. No
+  principle added, removed, or redefined.

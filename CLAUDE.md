@@ -11,9 +11,10 @@ The current repo is still the fresh Xcode 26 SwiftUI + SwiftData template — th
 **Authoritative specs** live in `Specs/`:
 - `constitution.md` — six non-negotiable principles (read first)
 - `spec.md` — user stories, functional requirements, success criteria
-- `data-model.md` — Core Data entities + GRDB food-reference schema
+- `data-model.md` — SwiftData models + GRDB food-reference schema
 - `file-architecture.md` — target Xcode project layout
 - `research.md` — technology decisions
+- `code-documentation.md` — per-module responsibilities and collaborators
 
 ## Build / Run
 
@@ -56,38 +57,40 @@ Layered by concern, not by type. Top-level folders under `ChewTheFat/`:
   - `Retrieval/` (read): food search over OFFs/USDA/web fallback, knowledge lookup.
   - `Action/` (write): log food, log weight, set goals, set profile.
 - `Knowledge/` — markdown goal/skill/reference files bundled in `Resources/`, loaded through `KnowledgeGraph` + `KnowledgeSelector`.
-- `Data/` — `CoreData/` (stack + `.xcdatamodeld`), `Models/` (NSManagedObject subclasses), `Repositories/` (the only things outside `Data/` that touch Core Data), `LocalDatabases/` (GRDB wrappers around `usda.sqlite` and `offs.sqlite`).
-- `Domain/` — pure Swift types shared across layers: `SessionGoal`, `WidgetIntent`, `NutritionFacts`, `MealType`, `ActivityLevel`, `FoodSource`. **No Core Data or SwiftUI imports** — this is what makes the agent unit-testable without a persistence stack.
-- `UI/` — `Chat/`, `Widgets/` (each widget has its own folder with View + ViewModel; `WidgetRenderer` dispatches `WidgetIntent` to views), `Onboarding/`, `Settings/`, `Shared/DesignSystem/`.
+- `Data/` — `SwiftData/` (schema + `ModelContainerProvider` + `ModelContextFactory`), `Models/` (`@Model` types, one file each), `Repositories/` (the only things outside `Data/` that touch `ModelContext`), `LocalDatabases/` (read-only GRDB wrappers around `usda.sqlite` and `offs.sqlite`).
+- `Domain/` — pure Swift types shared across layers: `SessionGoal`, `WidgetIntent`, `NutritionFacts`, `MealType`, `ActivityLevel`, `FoodSource`. **No SwiftData or SwiftUI imports** — this is what makes the agent unit-testable without a persistence stack.
+- `UI/` — `Chat/`, `Dashboard/` (US7 home screen — Trajectory / Today / meals list / chat history / nav chips), `Widgets/` (each widget has its own folder with View + ViewModel; `WidgetRenderer` dispatches `WidgetIntent` to views for the chat path, the Dashboard instantiates the same widget views with a `.live(repo:)` factory), `Onboarding/`, `Settings/`, `Shared/DesignSystem/`.
 - `Services/`, `Utilities/`, `Resources/`.
 
 Deliberately absent: `Managers/`, `Helpers/`, `Protocols/`, `ViewModels/`, `Constants/`. Protocols sit next to their primary implementation (e.g. `OrchestratorProtocol.swift` in `Orchestrator/`). ViewModels sit next to their Views.
 
 ### Dataflow invariants
 
-- UI code talks to **repositories**, never to `NSManagedObjectContext` directly.
-- `Message` rows carry either `textContent`, a `widgetType` + JSON `widgetPayload`, or both. A widget-only message has `textContent = nil`.
-- `LoggedFood` **snapshots** per-serving macros at log time — reference DB updates must never mutate historical logs.
+- UI code talks to **repositories**, never to `ModelContext` directly.
+- `Message` rows carry optional `textContent` and an ordered 1..N relation to `MessageWidget` rows. A widgets-only message has `textContent = nil`; every `MessageWidget` has a `type` (must match a `WidgetRenderer` entry) and a JSON `payload`.
+- **Widget payloads carry references, not snapshots.** `MessageWidget.payload` stores `loggedFoodIds`, `date`, `dateRange` etc. — the widget view resolves them against SwiftData at render time. Dashboard widgets skip the payload entirely and bind live to repositories. A user edit to an underlying log is reflected on every surface that presents it.
+- **Storage boundary**: the bundled `usda.sqlite` and `offs.sqlite` are **read-only RAG sources**. Only `FoodSearchRAG` and its retrieval Sources touch them. Display, logging, and repository code must go through SwiftData.
+- **Promotion rule**: on first log of a food from USDA / OFF / web, the RAG tool creates a SwiftData `FoodEntry` (or reuses one via `(source, sourceRefId)` uniqueness) and copies its servings into SwiftData `Serving` rows. `LoggedFood` then references those SwiftData rows — the reference DBs are never joined at read time. A reference-DB update can never retroactively mutate a historical log.
+- **RAG precedence**: `FoodSearchRAG` queries four sources in order — (1) `UserHistorySource` over SwiftData `FoodEntry` (matches `searchTokens` via `#Predicate`), (2) `USDAFoodSource`, (3) `OpenFoodFactsSource`, (4) `WebSearchFallback` (opt-in). History is ranked by match × `logCount` × recency so returning foods surface first.
 - `Trends` is a singleton pre-aggregated blob; writes to `LoggedFood` / `WeightEntry` mark it stale, a background task recomputes on next foreground.
 
 ### Agent latency budget (SC-002a)
 
 Streaming is mandatory. First token ≤ 3s, full response ≤ 15s.
 
-## Known scaffold ↔ spec discrepancies
+## Known scaffold ↔ spec state
 
-The current Xcode template disagrees with the constitution in several places. When you build the real architecture, reconcile these:
+The scaffold is now **aligned** with the constitution on persistence and deployment target (see constitution 1.0.1 amendment 2026-04-21). The remaining scaffold work is subtractive, not contentious:
 
-- **Persistence**: scaffold uses **SwiftData** (`@Model Item` + `ModelContainer` in `ChewTheFatApp.swift`). The spec and `data-model.md` mandate **Core Data** with automatic lightweight migration (FR-017). The `Item` model and the SwiftData container must be replaced.
-- **Deployment target**: project is `IPHONEOS_DEPLOYMENT_TARGET = 26.4`. Constitution says **iOS 17.0+** minimum. Lower the target before shipping.
-- **Swift version**: project is `SWIFT_VERSION = 5.0`. Constitution says **Swift 5.9+**.
-- Main-actor isolation is on by default (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_APPROACHABLE_CONCURRENCY = YES`). Agent/tool code that does heavy work must be explicitly `nonisolated` or moved to an actor.
+- **Scaffold SwiftData model** (`@Model Item`) is a placeholder — replace with the real `@Model` types per `Specs/data-model.md` and a `ChewTheFatSchema` / `ModelContainerProvider` pair.
+- **Swift version**: project is `SWIFT_VERSION = 5.0`. Bump to 5.9+ (required by modern SwiftUI + SwiftData idioms in use).
+- Main-actor isolation is on by default (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_APPROACHABLE_CONCURRENCY = YES`). Agent/tool code that does heavy work must be explicitly `nonisolated` or moved to an actor / `ModelActor`.
 
 ## Xcode project quirks
 
 - The `ChewTheFat` group is a `PBXFileSystemSynchronizedRootGroup`. Any `.swift` file dropped under `ChewTheFat/` is automatically part of the target — **do not hand-edit `project.pbxproj` to add sources.**
-- SwiftUI `#Preview`s should use in-memory stores (template pattern: `.modelContainer(for: Item.self, inMemory: true)`). Translate this to an in-memory `NSPersistentContainer` when migrating to Core Data.
+- SwiftUI `#Preview`s use in-memory stores: `.modelContainer(for: <Model>.self, inMemory: true)`. Keep this pattern once the real `@Model` types land.
 
 ## Amendments
 
-Before changing anything in `Specs/constitution.md`, follow its Amendment Procedure (propose on a branch, bump the semver version + `Last Amended` date, propagate to affected docs/templates, self-review the Sync Impact Report). The constitution is at version 1.0.0 (ratified 2026-04-20).
+Before changing anything in `Specs/constitution.md`, follow its Amendment Procedure (propose on a branch, bump the semver version + `Last Amended` date, propagate to affected docs/templates, self-review the Sync Impact Report). The constitution is at version **1.0.1** (last amended 2026-04-21 — iOS 26.0+ minimum, SwiftData adopted).

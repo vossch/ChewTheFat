@@ -57,12 +57,13 @@ ChewTheFat/
 │   │   │
 │   │   ├── Retrieval/
 │   │   │   ├── FoodSearchTool.swift
-│   │   │   ├── FoodSearchRAG.swift                 // Orchestrates across three sources
+│   │   │   ├── FoodSearchRAG.swift                 // Orchestrates across four sources
 │   │   │   ├── LookupKnowledgeTool.swift
 │   │   │   └── Sources/
-│   │   │       ├── OpenFoodFactsSource.swift
-│   │   │       ├── USDAFoodSource.swift
-│   │   │       └── WebSearchFallback.swift
+│   │   │       ├── UserHistorySource.swift         // #1: Core Data FoodEntry catalog
+│   │   │       ├── USDAFoodSource.swift            // #2: usda.sqlite, read-only
+│   │   │       ├── OpenFoodFactsSource.swift       // #3: offs.sqlite, read-only
+│   │   │       └── WebSearchFallback.swift         // #4: opt-in, network
 │   │   │
 │   │   └── Action/
 │   │       ├── LogFoodTool.swift
@@ -88,24 +89,25 @@ ChewTheFat/
 │   │       └── reference-macronutrients.md
 │   │
 │   ├── Data/
-│   │   ├── CoreData/
-│   │   │   ├── ChewTheFat.xcdatamodeld
-│   │   │   ├── PersistenceController.swift
-│   │   │   └── CoreDataStack.swift
+│   │   ├── SwiftData/
+│   │   │   ├── ChewTheFatSchema.swift               // VersionedSchema chain + MigrationPlan
+│   │   │   ├── ModelContainerProvider.swift         // Builds the app's single ModelContainer
+│   │   │   └── ModelContextFactory.swift            // viewContext + background ModelActor helpers
 │   │   │
-│   │   ├── Models/
-│   │   │   ├── Session+CoreDataClass.swift
-│   │   │   ├── Message+CoreDataClass.swift
-│   │   │   ├── FoodEntry+CoreDataClass.swift
-│   │   │   ├── Serving+CoreDataClass.swift
-│   │   │   ├── LoggedFood+CoreDataClass.swift
-│   │   │   ├── WeightEntry+CoreDataClass.swift
-│   │   │   ├── UserGoal+CoreDataClass.swift
-│   │   │   ├── UserProfile+CoreDataClass.swift
-│   │   │   ├── DailySummary+CoreDataClass.swift
-│   │   │   └── Trends+CoreDataClass.swift
+│   │   ├── Models/                                  // @Model types (SwiftData)
+│   │   │   ├── Session.swift
+│   │   │   ├── Message.swift
+│   │   │   ├── MessageWidget.swift                  // Ordered widgets per message (1..N)
+│   │   │   ├── FoodEntry.swift                      // User's food catalog (promoted/manual)
+│   │   │   ├── Serving.swift                        // Servings, owned by FoodEntry
+│   │   │   ├── LoggedFood.swift                     // References FoodEntry + Serving
+│   │   │   ├── WeightEntry.swift
+│   │   │   ├── UserGoal.swift
+│   │   │   ├── UserProfile.swift
+│   │   │   ├── DailySummary.swift
+│   │   │   └── Trends.swift
 │   │   │
-│   │   ├── Repositories/
+│   │   ├── Repositories/                            // Domain-typed façades over SwiftData
 │   │   │   ├── SessionRepository.swift
 │   │   │   ├── FoodLogRepository.swift
 │   │   │   ├── WeightLogRepository.swift
@@ -113,10 +115,10 @@ ChewTheFat/
 │   │   │   ├── ProfileRepository.swift
 │   │   │   └── MemoryRepository.swift
 │   │   │
-│   │   └── LocalDatabases/
-│   │       ├── OpenFoodFactsDB.swift               // SQLite wrapper
+│   │   └── LocalDatabases/                          // Read-only GRDB wrappers (RAG only)
+│   │       ├── OpenFoodFactsDB.swift
 │   │       ├── USDAFoodDB.swift
-│   │       └── DatabaseMigrator.swift
+│   │       └── DatabaseMigrator.swift               // No-op at runtime; build-time prep only
 │   │
 │   ├── Domain/
 │   │   ├── SessionGoal.swift                       // .logMeal, .logWeight, .userInsights, etc.
@@ -136,13 +138,20 @@ ChewTheFat/
 │   │   │   ├── ChatInputBar.swift
 │   │   │   └── SuggestedRepliesView.swift
 │   │   │
-│   │   ├── Widgets/
+│   │   ├── Dashboard/                              // US7: Home Dashboard (FR-018)
+│   │   │   ├── DashboardView.swift                 // Trajectory + Today + meals + chips + history
+│   │   │   ├── DashboardViewModel.swift            // Aggregates repo data; reacts live to SwiftData
+│   │   │   ├── TodayPanelView.swift                // Calories-left headline + macro bars + meals list
+│   │   │   ├── ChatHistoryListView.swift           // Prior sessions; opens via SessionStateManager
+│   │   │   └── DashboardNavChipsView.swift         // Goals / Profile / Settings entry points
+│   │   │
+│   │   ├── Widgets/                                // Dual-use: chat (payload-driven) + dashboard (live)
 │   │   │   ├── WidgetRenderer.swift                // Dispatches WidgetIntent to views
 │   │   │   ├── MealCard/
 │   │   │   │   ├── MealCardView.swift
-│   │   │   │   └── MealCardViewModel.swift
+│   │   │   │   └── MealCardViewModel.swift         // .snapshot(payload:) + .live(repo:) factories
 │   │   │   ├── WeightGraph/
-│   │   │   │   ├── WeightGraphView.swift
+│   │   │   │   ├── WeightGraphView.swift           // Used inline in chat AND as Dashboard Trajectory
 │   │   │   │   └── WeightGraphViewModel.swift
 │   │   │   └── MacroChart/
 │   │   │       ├── MacroChartView.swift
@@ -212,11 +221,11 @@ ChewTheFat/
 
 **Domain layer sits between Data and UI.** Pure Swift types like `SessionGoal`, `WidgetIntent`, `MealType` live here with no Core Data or SwiftUI dependencies. This is what lets you unit test the agent without standing up a persistence stack.
 
-**Repositories wrap Core Data.** The rest of the app talks to repositories, not to `NSManagedObjectContext` directly. Makes testing and future migration away from Core Data tractable.
+**Repositories wrap SwiftData.** The rest of the app talks to repositories, not to `ModelContext` directly. Makes testing and future migration (or framework swap) tractable, and gives a single seam for the Domain-typed return contracts.
 
 **Knowledge files live in Resources/ as bundled markdown.** For v1, ship them in the app bundle. Later, you can move them to the documents directory and allow user/remote updates without changing the loading code.
 
-**UI widgets have their own subfolders with view + viewmodel pairs.** Each widget is self-contained. WidgetRenderer is the dispatcher the Orchestrator's output flows through.
+**UI widgets are dual-use.** Each widget has its own subfolder with view + viewmodel pair. Widgets are shared between the chat thread (driven by a `MessageWidget.payload` of **references** into SwiftData — `loggedFoodIds`, `date`, `dateRange` — not denormalised nutrition) and the Dashboard (driven by live repository reads). A user edit to an underlying log is reflected in every surface that presents it. `WidgetRenderer` is the dispatcher the Orchestrator's output flows through for the chat path; the Dashboard instantiates the same views with a `.live(repo:)` factory.
 
 **Tests mirror the source tree.** One-to-one folder structure between `ChewTheFat/`
 ## Future Modularization
