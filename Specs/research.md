@@ -30,12 +30,32 @@ real-device benchmarks before App Store submission.
   for health coaching system prompts; limited tool-calling support. Revisit for
   future model-switching once API matures.
 
-**Model delivery**:
-- The model file is NOT bundled in the app binary (App Store 4 GB limit, review
-  friction). It is downloaded on first launch from a developer-controlled CDN,
-  stored in the app's `Application Support` directory, and not backed up to iCloud
-  (excluded via `URLResourceValues.isExcludedFromBackupKey`).
-- A mandatory download gate blocks onboarding until the model is available.
+**Model delivery** *(amended 2026-04-22)*:
+- The model file is **bundled in `ChewTheFat/Resources/` at build time** and tracked
+  via Git LFS. The same LFS configuration covers the USDA / Open Food Facts
+  reference SQLite files. The App Store bundle size limit (~4 GB) comfortably
+  accommodates a ~2 GB GGUF model plus the rest of the app.
+- **Rationale for bundling over CDN**:
+  - **Strict local-first compliance**: first launch — including EULA acceptance
+    and onboarding — works with no network access at all. A CDN download would
+    make first launch network-dependent, which contradicts Principle I even if
+    later runs are offline.
+  - **Simpler runtime**: no download manager, no progress gate UI, no resume/retry
+    logic, no `Application Support` bookkeeping, no `isExcludedFromBackupKey`
+    handling, no first-launch error taxonomy for download failures.
+  - **No CDN infrastructure or billing**.
+  - **Reviewer transparency**: the App Store listing shows the full install size
+    up front; users make an informed choice at install time.
+- **Trade-offs accepted**:
+  - **Cellular install prompt**: apps over 500 MB force Apple's WiFi-only prompt
+    on cellular. Users opt in once.
+  - **Slower TestFlight uploads**: each submission re-uploads the bundled model.
+  - **Model updates ship via the App Store**: no server-side model swap in v1;
+    acceptable since v1 ships one model and iterates app-side around it.
+- **Prior decision** *(superseded)*: the original plan downloaded the model from a
+  developer-controlled CDN into `Application Support` on first launch, excluded
+  from iCloud backup. That approach is retained here only as a historical note;
+  the bundled approach above is authoritative.
 
 ---
 

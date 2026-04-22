@@ -405,6 +405,23 @@ saved into that session rather than a new one.
   first streamed token), the chat surface MUST display a typing indicator. The
   indicator MUST be removed as soon as the first response token is rendered (see
   SC-002a).
+- **FR-028**: Each `SessionGoal` MUST declare a **completion contract** — a set
+  of required facts that MUST exist in SwiftData for the goal to be considered
+  satisfied. Contracts are authored as pure Swift predicates (the
+  `SessionGoalContract` type is the single source of truth for what a goal
+  requires). When the user attempts to start a new session whose goal differs
+  from the current session's goal, the orchestrator MUST evaluate the current
+  session's contract; if unsatisfied, the goal switch MUST be rejected and the
+  orchestrator MUST inject a system-level note into the current session
+  prompting the model to redirect the user toward the outstanding fields (a
+  **soft redirect** — no UI-level hard block). The conversational flow for
+  collecting missing fields is authored separately as a markdown playbook under
+  `Knowledge/Resources/` (e.g., `skill-onboarding.md`) and is a **suggestion**
+  for the model, not a hard-coded script — question order, phrasing, and
+  follow-ups are the model's responsibility. Every prompt assembled during an
+  active session MUST include a re-derived checklist of collected versus
+  still-missing fields (sourced from a `GoalProgressContextSource`) so the
+  model cannot lose track of what remains.
 
 ### Key Entities
 
@@ -514,11 +531,35 @@ saved into that session rather than a new one.
   (per the scaffold)? → A: **iOS 26.0+**, ratified via the constitution 1.0.1
   amendment. Lower targets are not supported.
 
+### Session 2026-04-22
+
+- Q: How should onboarding balance model-driven flexibility with enforcement of
+  required fields? → A: **Contract-enforced, model-driven.** Each `SessionGoal`
+  declares its required fields in Swift (`SessionGoalContract`, the single
+  source of truth). Required fields MUST be collected before a new session with
+  a different goal may start. The conversational flow, however, is a
+  **suggestion** delivered via a markdown playbook under `Knowledge/Resources/`
+  (e.g., `skill-onboarding.md`) — not a hard-coded script. The model drives
+  question order, phrasing, and follow-ups; every prompt includes a
+  re-derived checklist of collected versus missing fields (via a
+  `GoalProgressContextSource`) so the model cannot forget what remains. When
+  the user tries to switch goals mid-flow, the orchestrator issues a **soft
+  redirect** (a system-level note telling the model to guide the user back),
+  not a UI-level block. See FR-028.
+- Q: Should the on-device model file be bundled in the app binary or downloaded
+  from a CDN on first launch? → A: **Bundled**, tracked via Git LFS. Strict
+  local-first compliance (first launch — including EULA and onboarding — works
+  offline), no download-state machine or gate UI, no CDN infrastructure. The
+  ~2 GB GGUF fits comfortably under the App Store bundle size limit. See
+  `research.md §1 "Model delivery"` for the full trade-off analysis.
+
 ## Assumptions
 
-- The LLM model file (Apple MLX or llama.cpp compatible) is bundled with the app or
-  downloaded on first launch before onboarding begins; the specific model is to be
-  determined in the implementation plan.
+- The LLM model file (llama.cpp / GGUF format) is **bundled with the app** at
+  build time and tracked via Git LFS (see `research.md §1` and
+  `implementation-plan.md`). The specific GGUF model (Llama 3.2 3B Instruct
+  Q4_K_M vs Phi-3.5 Mini Instruct Q4_K_M) is validated empirically against
+  SC-002a during the agent-harness milestone.
 - The USDA FoodData Central and Open Food Facts SQLite databases are bundled with the
   app at build time; database update mechanics are out of scope for the initial version.
 - Web-search food fallback is an opt-in capability that requires the user to explicitly

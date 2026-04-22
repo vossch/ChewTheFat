@@ -214,6 +214,7 @@ later turns into native views.
 ### `SessionStateManager`
 
 **Role**: In-memory mirror of the currently-open `Session` and its pending turn.
+Also the enforcement point for `SessionGoalContract` on goal transitions (FR-028).
 
 **Responsibilities**:
 - Caches the current session's `Message` list (most recent N) so the ChatView can
@@ -221,9 +222,25 @@ later turns into native views.
 - Publishes updates via Combine/AsyncStream for the ChatViewModel to consume.
 - Coordinates "start new session" vs "resume existing session" transitions without
   losing in-flight turns.
+- **Goal-transition gate**: on any request to open a new session with a
+  `SessionGoal` different from the current one, evaluates the current session's
+  contract via `SessionGoalEvaluator`. If the contract is unsatisfied, the
+  switch is rejected and the manager injects a system-level note into the
+  current session (through `Orchestrator`) telling the model to redirect the
+  user back to the missing fields (the "soft redirect" policy — see FR-028).
+  The model composes the redirect in its own voice.
 
-**Depends on**: `SessionRepository`.
-**Used by**: `Orchestrator`, `ChatViewModel`.
+**Key functions**:
+```swift
+func startSession(goal: SessionGoal) async throws -> Session
+// Throws `SessionError.contractUnsatisfied(missing: [String])` and emits a
+// redirect note into the current session instead of completing the switch.
+```
+
+**Depends on**: `SessionRepository`, `SessionGoalEvaluator`, `Orchestrator` (for
+the redirect-note injection path).
+**Used by**: `Orchestrator`, `ChatViewModel`, `DashboardViewModel` (for the
+"start new session" affordance).
 
 ---
 
@@ -295,6 +312,7 @@ protocol ContextManagerProtocol {
 |--------|-----------|-------------|
 | `SessionContextSource` | `SessionRepository`, `SessionStateManager` | Recent messages (text and widget summaries), session goal. |
 | `GoalContextSource` | `GoalRepository` | Current daily calorie + macro targets, weekly-change rate, projected goal date. |
+| `GoalProgressContextSource` | `SessionGoalEvaluator`, `ProfileRepository`, `GoalRepository` | For the current session's `SessionGoal`, a re-derived checklist of **collected** and **still-missing** contract fields, plus the playbook-suggested next question. Runs every turn so the model cannot lose track of onboarding (or any future goal's) required state. See FR-028. |
 | `ProfileContextSource` | `ProfileRepository` | Age (derived from birth year), height, sex, activity level, preferred units. |
 | `MemoryContextSource` | `MemoryRepository`, `DailySummaryRepository` | Agent-authored facts and recent daily summaries, recency-ranked. |
 | `KnowledgeContextSource` | `KnowledgeGraph`, `KnowledgeSelector` | Markdown snippets relevant to the session goal and current topic. |
@@ -841,8 +859,19 @@ All types here are plain Swift values. **No imports** of SwiftData, SwiftUI, or
 GRDB. This is the seam that lets the agent and tools be tested without spinning up a
 persistence stack or rendering a view.
 
-- `SessionGoal` — enum: `.logMeal`, `.logWeight`, `.userInsights`, etc. Drives
-  `KnowledgeSelector` and agent prompt hints.
+- `SessionGoal` — enum: `.onboarding`, `.logMeal`, `.logWeight`, `.userInsights`,
+  etc. Drives `KnowledgeSelector` (playbook selection), `SessionGoalContract`
+  (required-fields lookup), and agent prompt hints.
+- `SessionGoalContract` — pure-Swift declaration of the required facts a given
+  `SessionGoal` must have satisfied in SwiftData before the goal is considered
+  complete. Single source of truth for "what a goal requires"; referenced by
+  the corresponding playbook markdown in `Knowledge/Resources/` but never
+  derived from it. See FR-028.
+- `SessionGoalEvaluator` — evaluates a `SessionGoalContract` against the current
+  SwiftData state and returns `(satisfied: Bool, collected: [FieldDescriptor],
+  missing: [FieldDescriptor])`. Used by both `GoalProgressContextSource` (to
+  inject the checklist into every prompt) and `SessionStateManager` (to gate
+  goal transitions with the soft-redirect policy).
 - `WidgetIntent` — tagged enum: `.mealCard(MealCardPayload)`,
   `.weightGraph(WeightGraphPayload)`, `.macroChart(MacroChartPayload)`,
   `.quickLog(QuickLogPayload)`. Produced by `WidgetIntentResolver`, consumed by

@@ -15,6 +15,7 @@ The current repo is still the fresh Xcode 26 SwiftUI + SwiftData template — th
 - `file-architecture.md` — target Xcode project layout
 - `research.md` — technology decisions
 - `code-documentation.md` — per-module responsibilities and collaborators
+- `implementation-plan.md` — milestone sequencing, captured decisions, per-milestone deliverables
 
 ## Build / Run
 

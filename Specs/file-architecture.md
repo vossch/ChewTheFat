@@ -28,6 +28,7 @@ ChewTheFat/
 │   │   │   └── Sources/
 │   │   │       ├── SessionContextSource.swift
 │   │   │       ├── GoalContextSource.swift
+│   │   │       ├── GoalProgressContextSource.swift  // Collected/missing checklist for current goal's contract
 │   │   │       ├── MemoryContextSource.swift
 │   │   │       ├── KnowledgeContextSource.swift
 │   │   │       └── ProfileContextSource.swift
@@ -121,7 +122,9 @@ ChewTheFat/
 │   │       └── DatabaseMigrator.swift               // No-op at runtime; build-time prep only
 │   │
 │   ├── Domain/
-│   │   ├── SessionGoal.swift                       // .logMeal, .logWeight, .userInsights, etc.
+│   │   ├── SessionGoal.swift                       // .onboarding, .logMeal, .logWeight, .userInsights, etc.
+│   │   ├── SessionGoalContract.swift               // Required-fields contract per SessionGoal (FR-028)
+│   │   ├── SessionGoalEvaluator.swift              // Evaluates a contract against SwiftData → (satisfied, collected, missing)
 │   │   ├── WidgetIntent.swift                      // .mealCard, .weightGraph, .macroChart
 │   │   ├── NutritionFacts.swift
 │   │   ├── MealType.swift                          // .breakfast, .lunch, .dinner, .snack
