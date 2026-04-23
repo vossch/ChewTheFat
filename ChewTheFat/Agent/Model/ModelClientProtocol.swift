@@ -3,6 +3,15 @@ import Foundation
 protocol ModelClientProtocol: Sendable {
     func warmUp() async throws
     func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelStreamEvent, Error>
+
+    /// Returns the exact token count for `text` using the client's tokenizer,
+    /// or `nil` when no tokenizer is available yet (e.g. not warmed up, or a
+    /// stub client). Callers should fall back to `ContextBudget.estimateTokens`.
+    func countTokens(_ text: String) async -> Int?
+}
+
+extension ModelClientProtocol {
+    func countTokens(_ text: String) async -> Int? { nil }
 }
 
 extension ModelClientProtocol {

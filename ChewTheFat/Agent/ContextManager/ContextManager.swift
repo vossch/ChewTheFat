@@ -16,6 +16,6 @@ final class ContextManager {
             let contribution = await source.contribute(for: request)
             fragments.append(contentsOf: contribution)
         }
-        return assembler.assemble(fragments: fragments)
+        return await assembler.assemble(fragments: fragments)
     }
 }

@@ -27,7 +27,9 @@ struct ChewTheFatApp: App {
 
     private func loadEnvironment() async {
         do {
-            environment = try AppEnvironment.live()
+            let env = try AppEnvironment.live()
+            environment = env
+            Task.detached { await env.warmUpModelIfReady() }
         } catch {
             loadError = error
         }

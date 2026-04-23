@@ -25,6 +25,38 @@ final class SessionStateManager {
         return await evaluator.evaluate(contract)
     }
 
+    enum StartSessionOutcome: Sendable {
+        /// New session created and now active.
+        case started(Session)
+        /// Transition rejected because onboarding is incomplete. The active
+        /// session is unchanged and a `system`-authored note has been appended
+        /// describing what's still missing — the orchestrator surfaces that note
+        /// to the model in the next turn rather than to the user.
+        case redirected(Session, note: String)
+    }
+
+    /// Contract-enforcing transition. If the user requests a non-onboarding
+    /// goal while the onboarding contract is still unsatisfied, no new session
+    /// is created — the current session keeps running and a system-authored
+    /// soft-redirect note is appended for the model to act on. Otherwise a new
+    /// session is created via the repository and becomes the active one.
+    func startSession(goal newGoal: SessionGoal) async throws -> StartSessionOutcome {
+        if newGoal != .onboarding {
+            let onboardingContract = SessionGoalContract.contract(for: .onboarding)
+            let onboardingProgress = await evaluator.evaluate(onboardingContract)
+            if !onboardingProgress.satisfied {
+                let missing = onboardingProgress.missing.map(\.label).joined(separator: ", ")
+                let note = "Cannot switch to \(newGoal.rawValue): onboarding incomplete (missing: \(missing)). Resume onboarding before fulfilling this request."
+                let message = Message(author: "system", textContent: note)
+                try sessions.appendMessage(message, to: session)
+                return .redirected(session, note: note)
+            }
+        }
+        let newSession = try sessions.create(goal: newGoal)
+        self.session = newSession
+        return .started(newSession)
+    }
+
     func appendUserMessage(_ text: String) throws -> Message {
         let message = Message(author: "user", textContent: text)
         try sessions.appendMessage(message, to: session)

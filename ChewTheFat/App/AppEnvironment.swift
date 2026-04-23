@@ -18,6 +18,7 @@ final class AppEnvironment {
     let foodSearch: FoodSearchRAG
     let knowledge: KnowledgeGraph
     let modelClient: ModelClientProtocol
+    let modelBootstrapper: ModelBootstrapperProtocol
     let toolRegistry: ToolCallDispatcher
     private let preferences: AppPreferences
 
@@ -26,12 +27,14 @@ final class AppEnvironment {
         preferences: AppPreferences = .default,
         usdaDB: USDAFoodDB? = nil,
         offsDB: OpenFoodFactsDB? = nil,
-        modelClient: ModelClientProtocol = StubModelClient()
+        modelClient: ModelClientProtocol = StubModelClient(),
+        modelBootstrapper: ModelBootstrapperProtocol = NullModelBootstrapper()
     ) {
         self.container = container
         self.contextFactory = ModelContextFactory(container: container)
         self.preferences = preferences
         self.modelClient = modelClient
+        self.modelBootstrapper = modelBootstrapper
 
         let ctx = container.mainContext
         let profile = ProfileRepository(context: ctx)
@@ -74,14 +77,21 @@ final class AppEnvironment {
             evaluator: goalEvaluator,
             sessions: sessions
         )
-        let contextManager = ContextManager(sources: [
-            ProfileContextSource(profile: profile),
-            GoalContextSource(goals: goals),
-            GoalProgressContextSource(evaluator: goalEvaluator),
-            SessionContextSource(sessions: sessions),
-            MemoryContextSource(memory: memory),
-            KnowledgeContextSource(graph: knowledge),
-        ])
+        let client = modelClient
+        let assembler = ContextAssembler(
+            tokenCounter: { text in await client.countTokens(text) }
+        )
+        let contextManager = ContextManager(
+            sources: [
+                ProfileContextSource(profile: profile),
+                GoalContextSource(goals: goals),
+                GoalProgressContextSource(evaluator: goalEvaluator),
+                SessionContextSource(sessions: sessions),
+                MemoryContextSource(memory: memory),
+                KnowledgeContextSource(graph: knowledge),
+            ],
+            assembler: assembler
+        )
         let turn = TurnHandler(model: modelClient, dispatcher: toolRegistry)
         let resolver = WidgetIntentResolver(foodLog: foodLog, weightLog: weightLog)
         return Orchestrator(
@@ -101,7 +111,33 @@ final class AppEnvironment {
         let offsDB = tryOpen { try OpenFoodFactsDB(url: $0) }(
             ReferenceDatabaseLocation.url(forResourceNamed: "offs")
         )
-        return AppEnvironment(container: container, usdaDB: usdaDB, offsDB: offsDB)
+
+        let (bootstrapper, modelClient): (ModelBootstrapperProtocol, ModelClientProtocol) = {
+            do {
+                let b = try ModelBootstrapper()
+                let c = try MLXModelClient()
+                return (b, c)
+            } catch {
+                return (NullModelBootstrapper(), StubModelClient())
+            }
+        }()
+
+        return AppEnvironment(
+            container: container,
+            usdaDB: usdaDB,
+            offsDB: offsDB,
+            modelClient: modelClient,
+            modelBootstrapper: bootstrapper
+        )
+    }
+
+    /// Best-effort eager warm-up. If the bootstrapper already has weights on
+    /// disk, load the container into memory so the first chat turn doesn't pay
+    /// cold-start latency. Errors are swallowed — the chat surface retries on
+    /// first real request.
+    func warmUpModelIfReady() async {
+        guard await modelBootstrapper.isReady else { return }
+        try? await modelClient.warmUp()
     }
 
     static func preview() throws -> AppEnvironment {
