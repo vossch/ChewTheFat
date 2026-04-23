@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "gray:0.93739,1.00000",
-      "gray:0.89895,1.00000"
+      "gray:0.00000,1.00000",
+      "gray:0.00000,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -43,8 +43,8 @@
               "appearance" : "dark",
               "value" : {
                 "linear-gradient" : [
-                  "gray:0.20733,1.00000",
-                  "gray:0.10983,1.00000"
+                  "gray:1.00000,1.00000",
+                  "gray:0.93723,1.00000"
                 ],
                 "orientation" : {
                   "start" : {
@@ -68,7 +68,7 @@
             },
             {
               "appearance" : "tinted",
-              "value" : 0.1
+              "value" : 0.8
             }
           ],
           "position" : {

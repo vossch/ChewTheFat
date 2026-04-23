@@ -108,6 +108,8 @@ to every long-lived collaborator, passed down the view tree via SwiftUI's enviro
 - `orchestrator: OrchestratorProtocol`
 - `knowledge: KnowledgeGraphProtocol`
 - `scheduler: ScheduledJobRunnerProtocol`
+- `modelBootstrapper: ModelBootstrapperProtocol`
+- `modelClient: ModelClientProtocol`
 
 **Depends on**: every protocol in the list above.
 **Used by**: `ChewTheFatApp` (constructs one), all view models (pull only what they
@@ -331,28 +333,72 @@ protocol ContextSourceProtocol {
 
 ## `Agent/Model/`
 
-### `ModelClientProtocol` / `ModelClient`
+### `ModelClientProtocol` / `MLXModelClient`
 
-**Role**: Narrow wrapper around the chosen on-device LLM runtime (llama.cpp or
-Apple MLX — decision deferred to the implementation plan).
+**Role**: Narrow wrapper around Apple MLX-Swift (`mlx-swift-lm` — `MLXLLM` +
+`MLXLMCommon`), the app's on-device LLM runtime (constitution 1.1.0).
 
 **Responsibilities**:
-- Loads the model once at process start; exposes `generate` as an `AsyncStream<String>`
-  of tokens.
+- Loads the model once from the local cache (populated by `ModelBootstrapper`);
+  exposes `stream` as an `AsyncThrowingStream<ModelStreamEvent, Error>` of
+  semantic chunks (text / tool-call / widget-blob / finished).
+- Refuses to start if `ModelBootstrapper.isReady` is false — the onboarding flow
+  gates the client behind a completed bootstrap; in the meantime the
+  `StubModelClient` stands in for tests and UI-only smoke paths.
 - Injects the agent's tool schemas at the system-prompt level.
 - Enforces cancellation (turn cancel = stream cancel, not just ignore).
 
 **Key functions**:
 ```swift
-protocol ModelClientProtocol {
-    func generate(_ request: ModelRequest) -> AsyncThrowingStream<String, Error>
-    func tokenize(_ text: String) -> [Int]        // used by ContextBudget
+protocol ModelClientProtocol: Sendable {
+    func warmUp() async throws
+    func stream(_ request: ModelRequest) -> AsyncThrowingStream<ModelStreamEvent, Error>
+}
+```
+
+**Depends on**: `MLXLLM` + `MLXLMCommon` (via `mlx-swift-lm`); a local model
+cache populated by `ModelBootstrapper`.
+**Used by**: `TurnHandler`, `ContextBudget`.
+
+---
+
+### `ModelBootstrapperProtocol` / `ModelBootstrapper`
+
+**Role**: Owns the first-launch model fetch from Hugging Face Hub (constitution
+1.1.0 Principle I, carve-out 1). Single source of truth for whether the model
+is ready to load. Idempotent on subsequent launches.
+
+**Responsibilities**:
+- On first launch after EULA acceptance, fetches the pinned model identifier's
+  weights from Hugging Face Hub via `MLXHuggingFace` (backed by
+  `huggingface/swift-huggingface` + `huggingface/swift-transformers`) and
+  writes them to `Application Support/Models/<modelId>/` with
+  `URLResourceKey.isExcludedFromBackupKey = true`.
+- Publishes progress (bytes-received / expected, throughput, phase) through an
+  `AsyncStream<BootstrapProgress>` the `ModelBootstrapView` binds to.
+- Resumes interrupted downloads from their byte offset when possible; safely
+  discards partial state and re-fetches when not.
+- Exposes typed errors: `.network`, `.diskFull`, `.cancelled`, `.integrityCheckFailed`
+  — each mapped to a recoverable UI state.
+- `isReady` returns `true` only when the cache contains a complete, integrity-checked
+  copy of the currently pinned model identifier; changing the pinned id in a new
+  app build re-triggers the bootstrap.
+
+**Key functions**:
+```swift
+protocol ModelBootstrapperProtocol: Sendable {
+    var isReady: Bool { get async }
+    func progress() -> AsyncStream<BootstrapProgress>
+    func fetch() async throws                   // idempotent; no-op if ready
     func cancel()
 }
 ```
 
-**Depends on**: a vendored llama.cpp / MLX Swift binding (out of tree).
-**Used by**: `TurnHandler`, `ContextBudget`.
+**Depends on**: `MLXHuggingFace`, `swift-huggingface`, `swift-transformers`,
+`FileManager`.
+**Used by**: `OnboardingCoordinator` (binds `ModelBootstrapView`),
+`MLXModelClient` (gates model load), `AppDelegate` (optional preflight on
+warm start).
 
 ---
 

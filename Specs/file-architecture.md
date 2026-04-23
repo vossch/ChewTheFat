@@ -34,7 +34,10 @@ ChewTheFat/
 │   │   │       └── ProfileContextSource.swift
 │   │   │
 │   │   ├── Model/
-│   │   │   ├── ModelClient.swift                   // Llama
+│   │   │   ├── ModelClientProtocol.swift
+│   │   │   ├── MLXModelClient.swift                 // Apple MLX-Swift (mlx-swift-lm)
+│   │   │   ├── StubModelClient.swift                // Test / pre-bootstrap stand-in
+│   │   │   ├── ModelBootstrapper.swift              // First-launch HF Hub fetch (constitution 1.1.0)
 │   │   │   ├── ModelRequest.swift
 │   │   │   ├── ModelResponse.swift
 │   │   │   ├── StreamingHandler.swift
@@ -163,6 +166,7 @@ ChewTheFat/
 │   │   ├── Onboarding/
 │   │   │   ├── OnboardingCoordinator.swift
 │   │   │   ├── EULAView.swift
+│   │   │   ├── ModelBootstrapView.swift             // First-launch model fetch progress UI
 │   │   │   ├── ProfileSetupView.swift
 │   │   │   └── GoalSetupView.swift
 │   │   │

@@ -5,14 +5,37 @@
 
 ### I. Local-First Architecture
 
-All computation, storage, and model inference MUST run entirely on-device. The LLM, USDA
-food reference database, Open Food Facts database (both SQLite), and all user data MUST
-be stored locally and MUST NOT be transmitted to any external server or third-party service.
-Network access is NOT permitted for core app functionality; any future optional network
-feature MUST be explicitly justified, opt-in, and isolated from core data pipelines.
+All computation, storage, and model inference MUST run entirely on-device. The USDA food
+reference database, Open Food Facts database (both SQLite), the LLM weights once cached,
+and all user data MUST be stored locally. **User-data egress is PROHIBITED**: no
+user-authored content, log entries, profile fields, conversation transcripts, or
+inference outputs MAY be transmitted off-device under any circumstance.
 
-**Rationale**: Privacy is non-negotiable for health data. On-device operation also ensures
-the app works without connectivity and eliminates latency from round-trip API calls.
+Network access is restricted to two narrowly scoped paths, each isolated from core data
+pipelines:
+
+1. **First-launch model bootstrap.** The on-device LLM weights MAY be fetched from a
+   public model registry (e.g., Hugging Face Hub) on first launch. The bootstrap MUST
+   occur **after EULA acceptance and before any user-data collection**, MUST be
+   surfaced with explicit progress UI in the onboarding flow, MUST cache the weights
+   locally for fully offline use thereafter, and MUST NOT re-fetch on subsequent
+   launches unless the app updates the pinned model identifier. The bootstrap
+   transmits no user data — only the public model identifier.
+2. **Opt-in web-search food fallback** (Principle V) — off by default, user-toggled in
+   Settings, isolated to a single retrieval source.
+
+Any additional network feature MUST be added to this list via the Amendment Procedure
+with explicit justification.
+
+**Rationale**: Privacy is non-negotiable for health data; the user-data egress
+prohibition is absolute. Inference must run on-device for latency (SC-002a) and
+offline reliability after setup. The first-launch bootstrap exception is justified by
+the App Store install-size cost of shipping a multi-hundred-megabyte model bundled,
+the cellular-install friction it would impose on every install, and the operational
+benefit of being able to revise the pinned model without a full app release. Bundling
+the model would have honoured the principle more strictly but at a UX and
+distribution cost the project judges higher than a single, transparent, post-EULA
+fetch.
 
 ### II. Native Components First
 
@@ -94,8 +117,15 @@ beautiful and readable increase engagement and reinforce healthy behaviors.
 
 - **Language**: Swift 5.9+
 - **UI Framework**: SwiftUI (primary), UIKit (when SwiftUI is insufficient)
-- **On-Device LLM**: Apple MLX or llama.cpp via Swift bindings (decision to be finalized
-  in first feature plan)
+- **On-Device LLM**: Apple MLX-Swift via the `mlx-swift-lm` package (`MLXLLM` +
+  `MLXLMCommon` SPM products). Inference runs entirely on-device using
+  Metal-accelerated kernels on Apple Silicon.
+- **Model Acquisition**: Weights are fetched on first launch from a public model
+  registry (Hugging Face Hub, via `huggingface/swift-huggingface` and
+  `huggingface/swift-transformers`, integrated through `MLXHuggingFace`). The
+  bootstrap is gated behind EULA acceptance, surfaced with explicit progress UI,
+  cached in `Application Support/Models/`, excluded from iCloud backup, and is
+  the only network-acquired binary asset in the app.
 - **User Data Persistence**: SwiftData (`@Model` types over SQLite). Lightweight schema
   changes ride Apple's automatic inference; breaking changes use `VersionedSchema` +
   `MigrationPlan`.
@@ -144,11 +174,68 @@ implementation begins.
 **Compliance**: All pull requests MUST be reviewed against this constitution. Violations
 MUST be resolved before merge, or formally justified in the Complexity Tracking table.
 
-**Version**: 1.0.1 | **Ratified**: 2026-04-20 | **Last Amended**: 2026-04-21
+**Version**: 1.1.0 | **Ratified**: 2026-04-20 | **Last Amended**: 2026-04-22
 
 **Amendment history**:
+- 1.1.0 (2026-04-22) — MINOR. Principle I expanded to permit a single, narrowly
+  scoped first-launch network path: fetching public LLM weights from a public
+  model registry (Hugging Face Hub) after EULA acceptance and before any
+  user-data collection. The user-data egress prohibition is unchanged and
+  restated as absolute. Technology Stack finalized the LLM choice as Apple
+  MLX-Swift via `mlx-swift-lm` (replacing the open `MLX or llama.cpp` choice)
+  and added a `Model Acquisition` entry describing the bootstrap path, cache
+  location, and backup-exclusion requirement. Supersedes the 2026-04-22
+  bundled-via-LFS decision recorded earlier the same day in `research.md §1`
+  and `spec.md §Clarifications`.
 - 1.0.1 (2026-04-21) — PATCH. Raised minimum deployment target from iOS 17.0+ to
   iOS 26.0+. Explicitly adopted SwiftData for user-data persistence (the prior
   version was silent on persistence framework). GRDB reaffirmed as the read-only
   access path for bundled USDA / Open Food Facts SQLite reference files. No
   principle added, removed, or redefined.
+
+---
+
+## Sync Impact Report — 1.1.0 (2026-04-22)
+
+**Trigger**: First-run UX of bundling a ~700 MB MLX-quantised LLM in the .ipa was
+judged worse than a transparent post-EULA fetch from a public registry. The strict
+local-first reading of Principle I needed an explicit, narrow carve-out so the change
+is auditable rather than implicit.
+
+**Principle changes**:
+- Principle I — added the two-path network whitelist (model bootstrap + opt-in
+  web-search fallback) and restated the user-data egress prohibition as absolute.
+  Rationale paragraph extended to acknowledge the bundling trade-off.
+
+**Technology Stack changes**:
+- LLM choice finalized: `mlx-swift-lm` (`MLXLLM`, `MLXLMCommon`).
+- New `Model Acquisition` entry describing the Hugging Face Hub bootstrap, cache
+  path, and backup-exclusion requirement.
+
+**Files propagated** (companion edits in this commit):
+- `Specs/research.md §1` — superseded the 2026-04-22 bundled-LFS decision; replaced
+  with HF Hub fetch. LLM framework decision updated to MLX-Swift; llama.cpp moved
+  to alternatives.
+- `Specs/spec.md` — FR-001 carve-out added; new `Session 2026-04-22 (Model
+  Acquisition)` clarification added; `Assumptions` updated to describe the HF Hub
+  fetch.
+- `Specs/implementation-plan.md` — D2/D3 updated; M0 LFS scope reduced; M2 step 1
+  rewritten for MLX deps; M4 gains a model-bootstrap step.
+- `Specs/code-documentation.md` — `ModelClient` parenthetical narrowed to MLX;
+  new `ModelBootstrapper` entry under `Agent/Model/`; `AppEnvironment` gains a
+  `modelBootstrapper` reference.
+- `Specs/file-architecture.md` — `Agent/Model/ModelBootstrapper.swift` and
+  `UI/Onboarding/ModelBootstrapView.swift` added to the tree.
+- `CLAUDE.md` — constitution version reference updated.
+
+**Files NOT requiring changes**:
+- `Specs/data-model.md` — schema unchanged; the bootstrap state lives in app
+  preferences, not SwiftData.
+
+**Self-review checklist**:
+- [x] User-data egress prohibition still absolute.
+- [x] Bootstrap network path is narrow, gated, and auditable in code.
+- [x] No other principle weakened.
+- [x] Versioning policy applied correctly (MINOR — materially expanded guidance,
+      no principle removed or redefined).
+- [x] Every cross-reference in companion specs updated in the same commit.

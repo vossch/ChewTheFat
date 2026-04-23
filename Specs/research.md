@@ -7,55 +7,76 @@
 
 ## 1. On-Device LLM Framework
 
-**Decision**: llama.cpp via Swift bindings (GGUF format models)
+**Decision**: Apple MLX-Swift via the `ml-explore/mlx-swift-lm` SPM package
+(`MLXLLM` + `MLXLMCommon`).
 
 **Rationale**:
-- llama.cpp has mature, production-proven iOS support via Metal GPU acceleration.
-  Multiple App Store apps ship it successfully.
-- GGUF quantized models (Q4_K_M) give a good quality/size tradeoff: a 3B parameter
-  model fits comfortably in ~2 GB, within iPhone memory budgets.
-- llama.cpp natively supports streaming token output, satisfying SC-002a (first token
-  ≤ 3s, full response ≤ 15s) with Metal on modern iPhones (A15+).
-- The Swift Package Manager wrapper `llama.cpp` (or thin Swift bridge) integrates
-  cleanly into an Xcode project without Objective-C bridging headers.
+- First-class Apple-Silicon Metal acceleration, maintained by Apple's MLX team.
+  Production-quality on iOS 26 (the constitution's minimum target) — past the
+  early-version concerns that made llama.cpp the safer pick a year ago.
+- `mlx-swift-lm` ships a clean, dedicated SPM surface (the prior
+  `mlx-swift-examples` repo bundled experimental tooling alongside the library;
+  the dedicated package drops the noise).
+- Native streaming via `ChatSession.respond(to:)` satisfies SC-002a (first token
+  ≤ 3 s, full response ≤ 15 s) on A15+ devices.
+- Tokenizer + downloader integration is provided through `huggingface/swift-huggingface`
+  + `huggingface/swift-transformers` via the `MLXHuggingFace` integration package,
+  which composes directly with the model bootstrap path described under
+  "Model delivery" below.
 
-**Recommended model**: Llama 3.2 3B Instruct (Q4_K_M, ~2.0 GB) or Phi-3.5 Mini
-Instruct (Q4_K_M, ~2.2 GB). Final model selection should be validated against
-real-device benchmarks before App Store submission.
+**Recommended model**: an `mlx-community` 4-bit quantised checkpoint targeting
+1B–3B parameters — the README's `LLMRegistry.gemma3_1B_qat_4bit` is a reasonable
+default. Final selection is validated empirically in M2 against SC-002a on an
+A15+ device before TestFlight submission.
 
 **Alternatives considered**:
-- Apple MLX Swift: Primarily optimised for Apple Silicon Macs; iOS support is
-  experimental and less production-ready as of 2026. Revisit when stable.
-- Apple Foundation Models (WWDC 2025): Apple's own on-device models; not customisable
-  for health coaching system prompts; limited tool-calling support. Revisit for
-  future model-switching once API matures.
+- **llama.cpp (ggerganov) via Swift bindings (GGUF)**: was the prior decision.
+  As of 2026-04 the upstream `llama.cpp` repository no longer ships a
+  `Package.swift` at its root; the documented SPM route 404s. Community wrappers
+  exist but add a maintenance dependency we'd own. MLX-Swift is the lower-risk
+  default now that iOS 26 is our floor.
+- **Apple Foundation Models (WWDC 2025)**: Apple's first-party on-device models;
+  not customisable for health-coaching system prompts; limited tool-calling
+  surface. Revisit for future model-switching once the API matures.
 
-**Model delivery** *(amended 2026-04-22)*:
-- The model file is **bundled in `ChewTheFat/Resources/` at build time** and tracked
-  via Git LFS. The same LFS configuration covers the USDA / Open Food Facts
-  reference SQLite files. The App Store bundle size limit (~4 GB) comfortably
-  accommodates a ~2 GB GGUF model plus the rest of the app.
-- **Rationale for bundling over CDN**:
-  - **Strict local-first compliance**: first launch — including EULA acceptance
-    and onboarding — works with no network access at all. A CDN download would
-    make first launch network-dependent, which contradicts Principle I even if
-    later runs are offline.
-  - **Simpler runtime**: no download manager, no progress gate UI, no resume/retry
-    logic, no `Application Support` bookkeeping, no `isExcludedFromBackupKey`
-    handling, no first-launch error taxonomy for download failures.
-  - **No CDN infrastructure or billing**.
-  - **Reviewer transparency**: the App Store listing shows the full install size
-    up front; users make an informed choice at install time.
+**Model delivery** *(amended 2026-04-22 — supersedes the earlier same-day
+"bundled via Git LFS" decision)*:
+- The model is **fetched on first launch from a public model registry**
+  (Hugging Face Hub) via `huggingface/swift-huggingface` + `swift-transformers`,
+  integrated through `MLXHuggingFace`. The pinned model identifier is held in
+  Swift code (single source of truth), not user-editable.
+- **Bootstrap flow**:
+  1. App launch with no cached model → static SwiftUI welcome + EULA screen
+     (no LLM required, no network used).
+  2. EULA acceptance → `ModelBootstrapView` shows explicit progress UI
+     (download bytes, throughput, cancel-and-retry-later) and invokes the
+     downloader. No user data is transmitted — the request payload is the
+     pinned model identifier only.
+  3. On completion the weights are written to `Application Support/Models/`
+     with `URLResourceKey.isExcludedFromBackupKey = true`; the conversational
+     onboarding turn begins.
+  4. Subsequent launches read from cache and never re-fetch unless the pinned
+     model identifier changes in a new app build.
+- **Rationale for fetch-over-bundle**:
+  - **Install size**: a 4-bit quantised ~1B model is ~700 MB; a 3B variant is
+    ~2 GB. Bundling pushes the .ipa close to the App Store cellular cap and
+    forces every install through Apple's WiFi-only prompt on cellular.
+  - **Update cadence**: model identifier changes can ship without a full App
+    Store review cycle (the bootstrap re-fetches when the pinned id changes).
+  - **No developer-run server required**: Hugging Face Hub serves public weights
+    over HTTPS; we hold no infrastructure or billing relationship.
 - **Trade-offs accepted**:
-  - **Cellular install prompt**: apps over 500 MB force Apple's WiFi-only prompt
-    on cellular. Users opt in once.
-  - **Slower TestFlight uploads**: each submission re-uploads the bundled model.
-  - **Model updates ship via the App Store**: no server-side model swap in v1;
-    acceptable since v1 ships one model and iterates app-side around it.
-- **Prior decision** *(superseded)*: the original plan downloaded the model from a
-  developer-controlled CDN into `Application Support` on first launch, excluded
-  from iCloud backup. That approach is retained here only as a historical note;
-  the bundled approach above is authoritative.
+  - **First-launch network requirement**: the app cannot complete onboarding
+    offline. This is the explicit constitution-amended carve-out (1.1.0 §I).
+  - **Bootstrap progress UI**: a one-screen progress view with retry/cancel must
+    be implemented and tested.
+  - **Cache failure modes**: corrupt cache, mid-download interruption, and
+    storage-full conditions need explicit handling — `ModelBootstrapper` owns
+    that surface.
+- **Prior decisions** *(superseded)*: the original 2026-04-20 plan fetched from a
+  developer-run CDN; the 2026-04-22 morning revision flipped to bundled-via-Git LFS.
+  Both are retained here only as historical context. The 1.1.0 amendment makes
+  the public-registry fetch authoritative.
 
 ---
 

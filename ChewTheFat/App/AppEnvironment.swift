@@ -16,36 +16,80 @@ final class AppEnvironment {
     let goalEvaluator: SessionGoalEvaluator
 
     let foodSearch: FoodSearchRAG
+    let knowledge: KnowledgeGraph
+    let modelClient: ModelClientProtocol
+    let toolRegistry: ToolCallDispatcher
     private let preferences: AppPreferences
 
     init(
         container: ModelContainer,
         preferences: AppPreferences = .default,
         usdaDB: USDAFoodDB? = nil,
-        offsDB: OpenFoodFactsDB? = nil
+        offsDB: OpenFoodFactsDB? = nil,
+        modelClient: ModelClientProtocol = StubModelClient()
     ) {
         self.container = container
         self.contextFactory = ModelContextFactory(container: container)
         self.preferences = preferences
+        self.modelClient = modelClient
 
         let ctx = container.mainContext
         let profile = ProfileRepository(context: ctx)
         let goals = GoalRepository(context: ctx)
+        let foodLog = FoodLogRepository(context: ctx)
+        let foodCatalog = FoodCatalogRepository(context: ctx)
+        let weightLog = WeightLogRepository(context: ctx)
         self.profile = profile
         self.goals = goals
         self.sessions = SessionRepository(context: ctx)
-        self.foodLog = FoodLogRepository(context: ctx)
-        self.foodCatalog = FoodCatalogRepository(context: ctx)
-        self.weightLog = WeightLogRepository(context: ctx)
+        self.foodLog = foodLog
+        self.foodCatalog = foodCatalog
+        self.weightLog = weightLog
         self.memory = MemoryRepository(context: ctx)
         self.goalEvaluator = SessionGoalEvaluatorLive(profile: profile, goals: goals)
 
-        self.foodSearch = FoodSearchRAG(
+        let foodSearch = FoodSearchRAG(
             history: UserHistorySource(context: ctx),
             usda: USDAFoodSource(db: usdaDB),
             openFoodFacts: OpenFoodFactsSource(db: offsDB),
             web: WebSearchFallback(),
             webFallbackEnabled: { [preferences] in preferences.webSearchFallbackEnabled }
+        )
+        self.foodSearch = foodSearch
+        self.knowledge = KnowledgeGraph()
+
+        let registry = ToolCallDispatcher()
+        registry.register(FoodSearchTool(rag: foodSearch))
+        registry.register(LookupKnowledgeTool(graph: self.knowledge))
+        registry.register(LogFoodTool(foodLog: foodLog, foodCatalog: foodCatalog, context: ctx))
+        registry.register(LogWeightTool(weightLog: weightLog))
+        registry.register(SetGoalsTool(goals: goals))
+        registry.register(SetProfileInfoTool(profile: profile))
+        self.toolRegistry = registry
+    }
+
+    func makeOrchestrator(for session: Session) -> Orchestrator {
+        let state = SessionStateManager(
+            session: session,
+            evaluator: goalEvaluator,
+            sessions: sessions
+        )
+        let contextManager = ContextManager(sources: [
+            ProfileContextSource(profile: profile),
+            GoalContextSource(goals: goals),
+            GoalProgressContextSource(evaluator: goalEvaluator),
+            SessionContextSource(sessions: sessions),
+            MemoryContextSource(memory: memory),
+            KnowledgeContextSource(graph: knowledge),
+        ])
+        let turn = TurnHandler(model: modelClient, dispatcher: toolRegistry)
+        let resolver = WidgetIntentResolver(foodLog: foodLog, weightLog: weightLog)
+        return Orchestrator(
+            state: state,
+            context: contextManager,
+            turn: turn,
+            resolver: resolver,
+            toolSchemas: toolRegistry.schemas
         )
     }
 

@@ -299,8 +299,16 @@ saved into that session rather than a new one.
 
 ### Functional Requirements
 
-- **FR-001**: The app MUST operate entirely on-device; no user data, food logs, weight
-  logs, or LLM inference MUST be transmitted to any external server.
+- **FR-001**: The app MUST operate entirely on-device for all user data and inference:
+  no user-authored content, food logs, weight logs, profile fields, conversation
+  transcripts, or LLM inference outputs MAY be transmitted to any external server.
+  Two narrowly scoped network paths are permitted (constitution 1.1.0 §I), each
+  isolated from core data pipelines: (a) the **first-launch model bootstrap** that
+  fetches the pinned public LLM weights from a public model registry, gated behind
+  EULA acceptance and surfaced with explicit progress UI, after which the model is
+  cached locally and used entirely offline; and (b) the **opt-in web-search food
+  fallback** (FR-014). The bootstrap MUST transmit only the pinned model
+  identifier; the fallback MUST transmit only the user-typed food query.
 - **FR-002**: The app MUST provide a conversational chat interface as the primary
   interaction surface for logging, coaching, and progress review.
 - **FR-003**: The health coach agent MUST support rendering the following interactive
@@ -552,14 +560,33 @@ saved into that session rather than a new one.
   offline), no download-state machine or gate UI, no CDN infrastructure. The
   ~2 GB GGUF fits comfortably under the App Store bundle size limit. See
   `research.md §1 "Model delivery"` for the full trade-off analysis.
+  *(Superseded the same day by the Model Acquisition clarification below.)*
+- Q: **Model Acquisition** — bundle the LLM in the .ipa, or fetch it on first
+  launch? → A: **Fetch on first launch** from a public model registry
+  (Hugging Face Hub) via `huggingface/swift-huggingface` +
+  `huggingface/swift-transformers`, integrated through `MLXHuggingFace`. The
+  bootstrap is the first step after EULA acceptance, surfaced with explicit
+  progress UI in `ModelBootstrapView`. Weights cache to
+  `Application Support/Models/` with iCloud-backup exclusion and are used
+  entirely offline thereafter. Ratified via constitution amendment 1.1.0
+  (2026-04-22) which adds this carve-out to Principle I and finalises the LLM
+  framework as Apple MLX-Swift via `mlx-swift-lm`. Trade-off: first launch
+  requires network connectivity, accepted in exchange for keeping the .ipa
+  small enough to avoid the App Store cellular-install prompt and for being
+  able to revise the pinned model identifier without a full app release. See
+  `research.md §1 "Model delivery"` for the full analysis. **Supersedes** the
+  earlier same-day "bundled via Git LFS" clarification above.
 
 ## Assumptions
 
-- The LLM model file (llama.cpp / GGUF format) is **bundled with the app** at
-  build time and tracked via Git LFS (see `research.md §1` and
-  `implementation-plan.md`). The specific GGUF model (Llama 3.2 3B Instruct
-  Q4_K_M vs Phi-3.5 Mini Instruct Q4_K_M) is validated empirically against
-  SC-002a during the agent-harness milestone.
+- The LLM is **Apple MLX-Swift** (via `mlx-swift-lm`); model weights are **fetched
+  on first launch** from a public model registry (Hugging Face Hub) into
+  `Application Support/Models/`, gated behind EULA acceptance and surfaced with
+  explicit progress UI (`ModelBootstrapView`). The pinned model identifier is held
+  in Swift code; default candidate is an `mlx-community` 4-bit quantised
+  Gemma3-1B (or equivalent 1B–3B class), validated empirically against SC-002a on
+  an A15+ device during the agent-harness milestone. See constitution §I and
+  `research.md §1 "Model delivery"` for the full analysis.
 - The USDA FoodData Central and Open Food Facts SQLite databases are bundled with the
   app at build time; database update mechanics are out of scope for the initial version.
 - Web-search food fallback is an opt-in capability that requires the user to explicitly

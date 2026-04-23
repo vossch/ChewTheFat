@@ -94,4 +94,4 @@ The scaffold is now **aligned** with the constitution on persistence and deploym
 
 ## Amendments
 
-Before changing anything in `Specs/constitution.md`, follow its Amendment Procedure (propose on a branch, bump the semver version + `Last Amended` date, propagate to affected docs/templates, self-review the Sync Impact Report). The constitution is at version **1.0.1** (last amended 2026-04-21 — iOS 26.0+ minimum, SwiftData adopted).
+Before changing anything in `Specs/constitution.md`, follow its Amendment Procedure (propose on a branch, bump the semver version + `Last Amended` date, propagate to affected docs/templates, self-review the Sync Impact Report). The constitution is at version **1.1.0** (last amended 2026-04-22 — Principle I carve-out for first-launch model bootstrap from a public registry; Technology Stack finalises Apple MLX-Swift via `mlx-swift-lm`).

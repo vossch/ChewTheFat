@@ -15,8 +15,8 @@ deferred, and the "done when" acceptance for each milestone.
 | # | Area | Decision |
 |---|------|----------|
 | D1 | Sequencing | Hybrid: `M0`–`M2` are horizontal foundation (design system, data, RAG, agent harness). `M3`+ are vertical slices organised by user story. |
-| D2 | LLM integration timing | Real llama.cpp lands in `M2`. A `StubModelClient` is retained for unit and UI tests only. |
-| D3 | Model delivery | **Bundled** in `ChewTheFat/Resources/` via Git LFS. No CDN, no first-launch download. See `research.md §1`. |
+| D2 | LLM integration timing | Real `MLXModelClient` (Apple MLX-Swift via `mlx-swift-lm`) lands in `M2`. A `StubModelClient` is retained for unit and UI tests only. |
+| D3 | Model delivery | **Fetched on first launch** from Hugging Face Hub via `huggingface/swift-huggingface` + `swift-transformers` (integrated through `MLXHuggingFace`). Cached in `Application Support/Models/`, excluded from iCloud backup. Bootstrap is gated behind EULA acceptance and runs as the first onboarding step before any user-data collection. Ratified via constitution amendment 1.1.0 (2026-04-22). See `research.md §1`. |
 | D4 | Reference DB preparation | In-repo Python pipeline under `Tools/db-prep/` emits `usda.sqlite` + `offs.sqlite` with pre-built FTS5 tables. Outputs tracked via Git LFS. |
 | D5 | Onboarding drive model | `SessionGoalContract` (Swift) declares required fields per goal; `skill-onboarding.md` (markdown playbook) declares the suggested conversational flow. The model drives the dialogue; the contract enforces completion. See FR-028 and `spec.md §Clarifications 2026-04-22`. |
 | D6 | Off-goal policy | Soft redirect: the orchestrator injects a system-level note into the current session prompting the model to guide the user back. No UI-level hard block. |
@@ -29,8 +29,7 @@ deferred, and the "done when" acceptance for each milestone.
 
 | Area | Status |
 |------|--------|
-| Specific GGUF model (Llama 3.2 3B Q4_K_M vs Phi-3.5 Mini Q4_K_M) | Validated empirically in `M2` against SC-002a on an A15+ device; pick whichever hits the latency budget with better quality. |
-| `llama.cpp` Swift binding (ggerganov's official SPM package vs community wrapper) | Default to ggerganov's `Package.swift` unless a specific blocker surfaces at `M2` start. |
+| Specific MLX model id (default `mlx-community/gemma-3-1b-it-qat-4bit` per `mlx-swift-lm` README; alternatives in the `mlx-community` 1B–3B 4-bit class) | Validated empirically in `M2` against SC-002a on an A15+ device; pick whichever hits the latency budget with better quality. |
 | `WebSearchFallback` provider and API key handling | Ships as a no-op stub in `M1`; real provider selection is post-v1. |
 | Voice dictation, camera, barcode scanning, HealthKit, data export | All deferred to post-v1 per `spec.md §Assumptions` and FR-022. |
 
@@ -40,13 +39,12 @@ deferred, and the "done when" acceptance for each milestone.
 
 This plan amends the following docs (see commits that accompany this file):
 
-- `research.md §1 "Model delivery"` — switched from CDN-download to bundled-in-`Resources/` via Git LFS.
-- `spec.md` — added **FR-028** (SessionGoal contract enforcement) and `Session 2026-04-22` clarification entries for the onboarding and model-delivery decisions.
-- `code-documentation.md` — added `SessionGoalContract`, `SessionGoalEvaluator`, `GoalProgressContextSource`; updated `SessionStateManager` responsibilities to include the soft-redirect behaviour.
-- `file-architecture.md` — added `Domain/SessionGoalContract.swift`, `Domain/SessionGoalEvaluator.swift`, `Agent/ContextManager/Sources/GoalProgressContextSource.swift`.
-- `CLAUDE.md` — this file added to the authoritative specs list.
-
-No `constitution.md` amendment is required: the principles themselves are unchanged. The bundled-model decision strengthens Principle I; the contract mechanism is an implementation shape, not a principle.
+- `research.md §1 "Model delivery"` — initially switched from CDN-download to bundled-in-`Resources/` via Git LFS; subsequently superseded the same day by the Hugging Face Hub fetch on first launch (constitution 1.1.0).
+- `spec.md` — added **FR-028** (SessionGoal contract enforcement) and `Session 2026-04-22` clarification entries for the onboarding, model-delivery, and Model Acquisition decisions; FR-001 widened to allow the bootstrap carve-out.
+- `code-documentation.md` — added `SessionGoalContract`, `SessionGoalEvaluator`, `GoalProgressContextSource`; updated `SessionStateManager` responsibilities to include the soft-redirect behaviour. Constitution 1.1.0 follow-on: `ModelClient` narrowed to MLX-Swift; new `ModelBootstrapper` entry under `Agent/Model/`; `AppEnvironment` gains a `modelBootstrapper` reference.
+- `file-architecture.md` — added `Domain/SessionGoalContract.swift`, `Domain/SessionGoalEvaluator.swift`, `Agent/ContextManager/Sources/GoalProgressContextSource.swift`. Constitution 1.1.0 follow-on: added `Agent/Model/ModelBootstrapper.swift` and `UI/Onboarding/ModelBootstrapView.swift`.
+- `CLAUDE.md` — added to the authoritative specs list; constitution version reference bumped to 1.1.0.
+- `constitution.md` — amended to **1.1.0 (2026-04-22)**: Principle I gains a narrow first-launch model-bootstrap carve-out; Technology Stack finalises the LLM choice as Apple MLX-Swift via `mlx-swift-lm` and adds a Model Acquisition entry. User-data egress prohibition restated as absolute.
 
 ---
 
@@ -58,7 +56,7 @@ No `constitution.md` amendment is required: the principles themselves are unchan
 
 1. Bump `SWIFT_VERSION` → 5.9+ in the Xcode project.
 2. Delete `ChewTheFat/Item.swift` and `ChewTheFat/ContentView.swift` (template scaffolding).
-3. Initialise Git LFS. `.gitattributes` tracks `*.gguf` and `ChewTheFat/Resources/*.sqlite`.
+3. Initialise Git LFS. `.gitattributes` tracks `ChewTheFat/Resources/*.sqlite`. *(Model weights are no longer bundled — fetched at runtime per constitution 1.1.0; no `*.gguf` / `*.safetensors` LFS pattern needed.)*
 4. Add `ChewTheFatTests` target to the Xcode project.
 5. Add `SwiftLint` as an SPM build tool plugin. Author `.swiftlint.yml` with:
    - Custom `no_hex_colours_in_swift` rule (Principle III — colours must come from Assets.xcassets).
@@ -107,12 +105,13 @@ No `constitution.md` amendment is required: the principles themselves are unchan
 
 **Scope**: wire a runnable on-device model, the orchestrator, context assembly, tool dispatch, session state management, and the onboarding playbook.
 
-1. Add `llama.cpp` as an SPM dependency. Download the chosen GGUF to `ChewTheFat/Resources/chewthefat-llm.gguf` and commit via Git LFS.
+1. Add SPM dependencies for the MLX stack: `ml-explore/mlx-swift-lm` (products `MLXLLM`, `MLXLMCommon`, `MLXHuggingFace`), `huggingface/swift-huggingface`, `huggingface/swift-transformers`. Pin a default model identifier in code (default candidate: `mlx-community/gemma-3-1b-it-qat-4bit`); validate empirically against SC-002a on an A15+ device before locking it.
 2. `Agent/Model/`:
    - `ModelClientProtocol`, `ModelRequest`, `ModelResponse`.
-   - `LlamaModelClient` as a Swift `actor` (explicitly `nonisolated` from `MainActor`); streams tokens via `AsyncThrowingStream<String>`; exposes `tokenize(_:)` for `ContextBudget`.
+   - `MLXModelClient` (`nonisolated final class`); wraps `LLMModelFactory.shared.loadContainer(...)` + `ChatSession`; streams tokens via `AsyncThrowingStream<ModelStreamEvent, Error>`; exposes a tokenizer hook for `ContextBudget`.
+   - `ModelBootstrapper` (`actor`) — owns the first-launch fetch from Hugging Face Hub via `MLXHuggingFace`; surfaces progress through an `AsyncStream<BootstrapProgress>`; writes weights to `Application Support/Models/<modelId>/` with `URLResourceKey.isExcludedFromBackupKey = true`; idempotent on subsequent launches (no-ops when cache matches the pinned identifier). Surfaces `ModelBootstrapError.network`, `.diskFull`, `.cancelled` for the onboarding UI.
    - `StreamingHandler` — tag-based state machine converting raw tokens into `.text(String)`, `.toolCall(ToolCall)`, `.widgetBlob(RawWidgetBlob)` chunks.
-   - `StubModelClient` — deterministic fixture driver for tests.
+   - `StubModelClient` — deterministic fixture driver for tests; also stands in when the bootstrap has not yet completed.
    - `ToolSchema` — generated from `ToolProtocol` conformances so the model prompt and dispatcher share one source of truth.
 3. `Agent/ContextManager/`:
    - `ContextManager`, `ContextAssembler`, `ContextBudget` (uses `LlamaModelClient.tokenize`), `ContextSourceProtocol`.
@@ -129,7 +128,7 @@ No `constitution.md` amendment is required: the principles themselves are unchan
 6. `Knowledge/`:
    - `KnowledgeGraph`, `KnowledgeGraphLoader`, `KnowledgeIndex`, `KnowledgeFile`, `KnowledgeType`, `KnowledgeSelector`.
    - First content authored: `Index.md`, `skill-onboarding.md` (full onboarding playbook — suggested question order, chip options, height ambiguity handling, goal-recommendation phrasing), plus placeholders `goal-weight-loss.md`, `goal-muscle-gain.md`, `goal-maintenance.md`, `skill-meal-logging.md`, `skill-weight-tracking.md`, `reference-macronutrients.md`.
-7. Wire `AppDelegate.application(_:didFinishLaunchingWithOptions:)` to warm the model during launch.
+7. Wire `AppDelegate.application(_:didFinishLaunchingWithOptions:)` to warm the model during launch **only if** the bootstrap has completed (`ModelBootstrapper.isReady`); otherwise defer warm-up to the post-bootstrap onboarding kickoff.
 8. Latency validation: an XCTest harness that sends a canned user turn and asserts first-token ≤ 3 s on an A15+ device.
 
 **Done when:**
@@ -163,15 +162,15 @@ No `constitution.md` amendment is required: the principles themselves are unchan
 
 **Scope**: first-run flow driven by the playbook, enforced by the contract.
 
-1. `UI/Onboarding/OnboardingCoordinator` — lives inside the chat thread; seeds `session.goal = .onboarding` and enqueues a system-authored kickoff turn.
-2. `UI/Onboarding/EULAView`, `ProfileSetupView`, `GoalSetupView` — inline widgets / suggested-reply chips emitted by the model via widget-intent tool calls.
+1. `UI/Onboarding/OnboardingCoordinator` — orchestrates the three-phase first-run flow: (a) **EULA** (static SwiftUI, no LLM, no network), (b) **Model bootstrap** (`ModelBootstrapView` — only runs if `ModelBootstrapper.isReady` is false; surfaces download progress, cancel/retry, and disk/network error states), (c) **Conversational onboarding** (lives inside the chat thread; seeds `session.goal = .onboarding` and enqueues a system-authored kickoff turn). Phases (a)–(b) gate (c); phase (b) is skipped when the cache already contains the pinned model. Resume-on-relaunch preserves whichever phase the user left off in.
+2. `UI/Onboarding/EULAView`, `ModelBootstrapView`, `ProfileSetupView`, `GoalSetupView` — `ModelBootstrapView` is a static SwiftUI progress screen bound to `ModelBootstrapper`'s `AsyncStream<BootstrapProgress>`; the profile/goal setup views remain inline widgets emitted by the model via widget-intent tool calls once the bootstrap is complete.
 3. Height-parsing path: `SetProfileInfoTool` accepts a `heightInput: String`, delegates to a small Swift parser for `5' 11"`, `5-11`, `5 ft 11 in`, `180 cm`; invalid input returns a typed error the model surfaces conversationally.
 4. Projected goal-achievement date math in `GoalRepository`.
 5. Resume-on-relaunch is free: `session.goal = .onboarding` persists; `GoalProgressContextSource` re-derives missing fields on next launch.
 
 **Done when:**
-- A fresh install walks from launch to chat surface in under 3 minutes (SC-001).
-- Killing the app mid-flow resumes in place with the same collected fields.
+- A fresh install walks from launch to chat surface in under 3 minutes (SC-001) on a reference broadband connection, including the first-launch model bootstrap.
+- Killing the app mid-flow — including mid-bootstrap — resumes in place; a partially-downloaded model is either resumed from its byte offset or safely discarded and re-fetched with no user data collected in the meantime.
 - Typing "log my weight" mid-onboarding produces a model-authored redirect, not a UI-level block.
 
 ---
@@ -250,8 +249,9 @@ The smallest first PR is `M0` steps 1–5: bump Swift version, delete scaffold f
 
 Edits applied alongside this plan:
 
-- `Specs/research.md §1` — Model delivery flipped to bundled via LFS.
-- `Specs/spec.md` — FR-028 added; `Session 2026-04-22` clarifications recorded.
-- `Specs/code-documentation.md` — `SessionGoalContract`, `SessionGoalEvaluator`, `GoalProgressContextSource` added; `SessionStateManager` responsibilities expanded.
-- `Specs/file-architecture.md` — three new files added to the tree.
-- `CLAUDE.md` — authoritative specs list updated.
+- `Specs/research.md §1` — Model delivery initially flipped to bundled via LFS, then the same day superseded by Hugging Face Hub fetch on first launch; LLM framework decision updated from llama.cpp to MLX-Swift via `mlx-swift-lm`.
+- `Specs/spec.md` — FR-028 added; `Session 2026-04-22` clarifications recorded, including the Model Acquisition follow-up; FR-001 widened for the bootstrap carve-out; Assumptions updated to describe the HF Hub fetch.
+- `Specs/code-documentation.md` — `SessionGoalContract`, `SessionGoalEvaluator`, `GoalProgressContextSource` added; `SessionStateManager` responsibilities expanded. Constitution 1.1.0 follow-on: `ModelClient` narrowed to MLX-Swift; new `ModelBootstrapper` section; `AppEnvironment` gains a `modelBootstrapper` reference.
+- `Specs/file-architecture.md` — three new files added to the tree, plus `Agent/Model/ModelBootstrapper.swift` and `UI/Onboarding/ModelBootstrapView.swift`.
+- `CLAUDE.md` — authoritative specs list updated; constitution version reference bumped to 1.1.0.
+- `Specs/constitution.md` — **amended to 1.1.0 (2026-04-22)**: Principle I gains the first-launch model-bootstrap carve-out; Technology Stack finalises Apple MLX-Swift and adds a Model Acquisition entry; Sync Impact Report embedded in the file.
