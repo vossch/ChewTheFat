@@ -21,3 +21,19 @@ enum IconSize {
     static let md: CGFloat = 20
     static let lg: CGFloat = 28
 }
+
+enum StrokeWidth {
+    static let hairline: CGFloat = 0.5
+    static let border: CGFloat = 1
+    static let emphasis: CGFloat = 2
+}
+
+enum ChartHeight {
+    static let compact: CGFloat = 120
+    static let standard: CGFloat = 160
+}
+
+enum DashPattern {
+    static let projected: [CGFloat] = [4, 4]
+    static let goal: [CGFloat] = [2, 4]
+}

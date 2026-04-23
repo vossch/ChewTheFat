@@ -52,6 +52,14 @@ struct FoodLogRepository {
         return try context.fetch(descriptor)
     }
 
+    func loggedFoods(ids: [UUID]) throws -> [LoggedFood] {
+        guard !ids.isEmpty else { return [] }
+        let descriptor = FetchDescriptor<LoggedFood>(
+            predicate: #Predicate { ids.contains($0.id) }
+        )
+        return try context.fetch(descriptor)
+    }
+
     func delete(_ entry: LoggedFood) throws {
         entry.foodEntry?.logCount = max(0, (entry.foodEntry?.logCount ?? 1) - 1)
         context.delete(entry)

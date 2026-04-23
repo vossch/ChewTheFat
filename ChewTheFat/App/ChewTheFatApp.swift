@@ -39,42 +39,53 @@ struct ChewTheFatApp: App {
 private struct RootView: View {
     let environment: AppEnvironment
     @State private var isOnboarded: Bool = false
+    @State private var chatViewModel: ChatViewModel?
+    @State private var sessionLoadError: String?
 
     var body: some View {
         Group {
             if isOnboarded {
-                PlaceholderChatView()
+                chatRoot
             } else {
                 PlaceholderOnboardingView()
             }
         }
-        .task { refreshOnboardingState() }
+        .task { await refreshOnboardingState() }
         .environment(\.modelContext, environment.container.mainContext)
     }
 
-    private func refreshOnboardingState() {
+    @ViewBuilder
+    private var chatRoot: some View {
+        if let chatViewModel {
+            ChatView(viewModel: chatViewModel, environment: environment)
+        } else if let sessionLoadError {
+            ContainerErrorView(error: SimpleError(message: sessionLoadError))
+        } else {
+            ProgressView()
+                .task { await prepareChatSession() }
+        }
+    }
+
+    private func refreshOnboardingState() async {
         let profile = try? environment.profile.current()
         isOnboarded = profile?.eulaAcceptedAt != nil
     }
-}
 
-private struct PlaceholderChatView: View {
-    var body: some View {
-        ZStack {
-            AppColor.backgroundPrimary.ignoresSafeArea()
-            VStack(spacing: Spacing.md) {
-                Image(systemName: AppIcon.chat)
-                    .font(.system(size: IconSize.lg))
-                    .foregroundStyle(AppColor.accent)
-                Text("Chat")
-                    .font(Typography.title)
-                    .foregroundStyle(AppColor.textPrimary)
-                Text("Coming in M3")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(AppColor.textSecondary)
-            }
+    private func prepareChatSession() async {
+        do {
+            let existing = try environment.sessions.list(limit: 1).first
+            let session = try existing ?? environment.sessions.create(goal: .general)
+            let orchestrator = environment.makeOrchestrator(for: session)
+            chatViewModel = ChatViewModel(orchestrator: orchestrator, session: session)
+        } catch {
+            sessionLoadError = error.localizedDescription
         }
     }
+}
+
+private struct SimpleError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }
 
 private struct PlaceholderOnboardingView: View {

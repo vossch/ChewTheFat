@@ -14,6 +14,16 @@
 		3A7D25162F99A68D0011FB8E /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = 3A7D25152F99A68D0011FB8E /* Tokenizers */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		4A8E3600000000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3A7D234A2F9839DF0011FB8E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3A7D23512F9839DF0011FB8E;
+			remoteInfo = ChewTheFat;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		3A7D23522F9839DF0011FB8E /* ChewTheFat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChewTheFat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A8E36000000000000000009 /* ChewTheFatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChewTheFatTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -76,29 +86,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		4A8E36000000000000000001 /* ChewTheFatTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 4A8E36000000000000000002 /* Build configuration list for PBXNativeTarget "ChewTheFatTests" */;
-			buildPhases = (
-				4A8E36000000000000000005 /* Sources */,
-				4A8E36000000000000000006 /* Frameworks */,
-				4A8E36000000000000000007 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				4A8E3600000000000000000B /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				4A8E36000000000000000008 /* ChewTheFatTests */,
-			);
-			name = ChewTheFatTests;
-			packageProductDependencies = (
-			);
-			productName = ChewTheFatTests;
-			productReference = 4A8E36000000000000000009 /* ChewTheFatTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 		3A7D23512F9839DF0011FB8E /* ChewTheFat */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3A7D235F2F9839E10011FB8E /* Build configuration list for PBXNativeTarget "ChewTheFat" */;
@@ -125,6 +112,29 @@
 			productName = ChewTheFat;
 			productReference = 3A7D23522F9839DF0011FB8E /* ChewTheFat.app */;
 			productType = "com.apple.product-type.application";
+		};
+		4A8E36000000000000000001 /* ChewTheFatTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4A8E36000000000000000002 /* Build configuration list for PBXNativeTarget "ChewTheFatTests" */;
+			buildPhases = (
+				4A8E36000000000000000005 /* Sources */,
+				4A8E36000000000000000006 /* Frameworks */,
+				4A8E36000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4A8E3600000000000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				4A8E36000000000000000008 /* ChewTheFatTests */,
+			);
+			name = ChewTheFatTests;
+			packageProductDependencies = (
+			);
+			productName = ChewTheFatTests;
+			productReference = 4A8E36000000000000000009 /* ChewTheFatTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -203,16 +213,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXContainerItemProxy section */
-		4A8E3600000000000000000A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 3A7D234A2F9839DF0011FB8E /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 3A7D23512F9839DF0011FB8E;
-			remoteInfo = ChewTheFat;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
 		4A8E3600000000000000000B /* PBXTargetDependency */ = {

@@ -20,6 +20,7 @@ final class AppEnvironment {
     let modelClient: ModelClientProtocol
     let modelBootstrapper: ModelBootstrapperProtocol
     let toolRegistry: ToolCallDispatcher
+    let ticker: ModelChangeTicker
     private let preferences: AppPreferences
 
     init(
@@ -35,6 +36,7 @@ final class AppEnvironment {
         self.preferences = preferences
         self.modelClient = modelClient
         self.modelBootstrapper = modelBootstrapper
+        self.ticker = ModelChangeTicker()
 
         let ctx = container.mainContext
         let profile = ProfileRepository(context: ctx)
