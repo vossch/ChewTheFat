@@ -38,43 +38,84 @@ struct ChewTheFatApp: App {
 
 private struct RootView: View {
     let environment: AppEnvironment
-    @State private var isOnboarded: Bool = false
+    @State private var coordinator: OnboardingCoordinator
     @State private var chatViewModel: ChatViewModel?
     @State private var sessionLoadError: String?
 
+    init(environment: AppEnvironment) {
+        self.environment = environment
+        _coordinator = State(initialValue: OnboardingCoordinator(
+            profile: environment.profile,
+            sessions: environment.sessions,
+            evaluator: environment.goalEvaluator,
+            bootstrapper: environment.modelBootstrapper
+        ))
+    }
+
     var body: some View {
         Group {
-            if isOnboarded {
-                chatRoot
-            } else {
-                PlaceholderOnboardingView()
+            switch coordinator.phase {
+            case .loading:
+                ProgressView()
+            case .eula:
+                EULAView(onAccept: coordinator.acceptEULA)
+            case .bootstrap:
+                ModelBootstrapView(
+                    bootstrapper: environment.modelBootstrapper,
+                    onComplete: coordinator.bootstrapDidComplete
+                )
+            case .chat(let session):
+                onboardingChatRoot(session: session)
+            case .ready:
+                readyChatRoot
             }
         }
-        .task { await refreshOnboardingState() }
+        .task { await coordinator.resolveInitialPhase() }
         .environment(\.modelContext, environment.container.mainContext)
     }
 
     @ViewBuilder
-    private var chatRoot: some View {
+    private func onboardingChatRoot(session: Session) -> some View {
+        let viewModel = chatViewModel(for: session)
+        if let viewModel {
+            ChatView(viewModel: viewModel, environment: environment)
+                .task(id: environment.ticker.tick) {
+                    await coordinator.recheckOnboardingCompletion()
+                }
+        } else if let sessionLoadError {
+            ContainerErrorView(error: SimpleError(message: sessionLoadError))
+        } else {
+            ProgressView()
+        }
+    }
+
+    @ViewBuilder
+    private var readyChatRoot: some View {
         if let chatViewModel {
             ChatView(viewModel: chatViewModel, environment: environment)
         } else if let sessionLoadError {
             ContainerErrorView(error: SimpleError(message: sessionLoadError))
         } else {
             ProgressView()
-                .task { await prepareChatSession() }
+                .task { await prepareReadyChatSession() }
         }
     }
 
-    private func refreshOnboardingState() async {
-        let profile = try? environment.profile.current()
-        isOnboarded = profile?.eulaAcceptedAt != nil
+    private func chatViewModel(for session: Session) -> ChatViewModel? {
+        if let existing = chatViewModel, existing.session.id == session.id {
+            return existing
+        }
+        let orchestrator = environment.makeOrchestrator(for: session)
+        let vm = ChatViewModel(orchestrator: orchestrator, session: session)
+        chatViewModel = vm
+        return vm
     }
 
-    private func prepareChatSession() async {
+    private func prepareReadyChatSession() async {
         do {
-            let existing = try environment.sessions.list(limit: 1).first
-            let session = try existing ?? environment.sessions.create(goal: .general)
+            let nonOnboarding = try environment.sessions.list(limit: 20)
+                .first { $0.goal != SessionGoal.onboarding.rawValue }
+            let session = try nonOnboarding ?? environment.sessions.create(goal: .general)
             let orchestrator = environment.makeOrchestrator(for: session)
             chatViewModel = ChatViewModel(orchestrator: orchestrator, session: session)
         } catch {
@@ -86,26 +127,6 @@ private struct RootView: View {
 private struct SimpleError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
-}
-
-private struct PlaceholderOnboardingView: View {
-    var body: some View {
-        ZStack {
-            AppColor.backgroundPrimary.ignoresSafeArea()
-            VStack(spacing: Spacing.md) {
-                Image(systemName: AppIcon.goals)
-                    .font(.system(size: IconSize.lg))
-                    .foregroundStyle(AppColor.accent)
-                Text("Welcome to ChewTheFat")
-                    .font(Typography.title)
-                    .foregroundStyle(AppColor.textPrimary)
-                Text("Onboarding arrives in M4")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(AppColor.textSecondary)
-            }
-            .padding(Spacing.lg)
-        }
-    }
 }
 
 private struct ContainerErrorView: View {

@@ -28,31 +28,51 @@ final class WeightGraphViewModel {
         let pastPoints = past.map {
             Point(id: $0.date, date: $0.date, weightKg: $0.weightKg, isProjected: false)
         }
-        self.points = pastPoints + projectionStub(from: pastPoints)
+        self.points = pastPoints + projection(from: pastPoints)
         self.idealWeightKg = (try? goals.current())?.idealWeightKg
     }
 
-    /// M3 stub: if the user has a goal and at least one weight entry, draw a
-    /// 14-day linear projection toward the idealWeightKg. The real heuristic
-    /// lands in M4 alongside the onboarding goal-date math.
-    private func projectionStub(from past: [Point]) -> [Point] {
+    /// Linear projection anchored at the most recent weight entry, using the
+    /// per-day rate GoalRepository derives from weeklyChangeKg. Stops when the
+    /// trajectory reaches idealWeightKg.
+    private func projection(from past: [Point]) -> [Point] {
         guard let last = past.last else { return [] }
-        let target = (try? goals.current())?.idealWeightKg
-        guard let target, target != last.weightKg else { return [] }
+        guard let outcome = try? goals.projectedGoal(
+            currentWeightKg: last.weightKg,
+            reference: last.date
+        ) else { return [] }
 
-        let calendar = Calendar.current
-        let horizonDays = 14
-        let delta = (target - last.weightKg) / Double(horizonDays)
-        var out: [Point] = []
-        for day in 1...horizonDays {
-            guard let next = calendar.date(byAdding: .day, value: day, to: last.date) else { continue }
-            out.append(Point(
-                id: next,
-                date: next,
-                weightKg: last.weightKg + delta * Double(day),
-                isProjected: true
-            ))
+        switch outcome {
+        case .atGoal, .indefinite:
+            return []
+        case .projected(let endDate, let perDay):
+            guard let ideal = (try? goals.current())?.idealWeightKg else { return [] }
+            let calendar = Calendar.current
+            let totalDays = max(
+                1,
+                calendar.dateComponents([.day], from: last.date, to: endDate).day ?? 1
+            )
+            let sampleCount = min(max(totalDays, 4), 60)
+            let step = max(1, totalDays / sampleCount)
+            var out: [Point] = []
+            var day = step
+            while day <= totalDays {
+                guard let next = calendar.date(byAdding: .day, value: day, to: last.date) else { break }
+                let projectedWeight = last.weightKg + perDay * Double(day)
+                let clamped = clamp(projectedWeight, toward: ideal, from: last.weightKg)
+                out.append(Point(id: next, date: next, weightKg: clamped, isProjected: true))
+                day += step
+            }
+            if out.last?.date != endDate {
+                out.append(Point(id: endDate, date: endDate, weightKg: ideal, isProjected: true))
+            }
+            return out
         }
-        return out
+    }
+
+    /// Prevents a rounding overshoot past the goal line.
+    private func clamp(_ value: Double, toward goal: Double, from start: Double) -> Double {
+        if start < goal { return min(value, goal) }
+        return max(value, goal)
     }
 }

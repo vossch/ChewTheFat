@@ -22,6 +22,52 @@ final class Orchestrator: OrchestratorProtocol {
         self.toolSchemas = toolSchemas
     }
 
+    func kickoff() -> AsyncThrowingStream<TurnEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                guard state.session.messages.isEmpty else {
+                    continuation.finish()
+                    return
+                }
+
+                let request = await buildRequest(latestUserText: nil, isKickoff: true)
+                var streamedText = ""
+                var emittedWidgets: [WidgetIntent] = []
+
+                do {
+                    for try await event in turn.run(initialRequest: request) {
+                        switch event {
+                        case .textChunk(let chunk):
+                            streamedText += chunk
+                        case .widget(let intent):
+                            if let resolved = resolver.resolve(intent) {
+                                emittedWidgets.append(resolved)
+                            }
+                        case .toolCallStarted, .toolCallFinished:
+                            break
+                        case .completed(let text, _, _):
+                            let finalText = text.isEmpty ? streamedText : text
+                            do {
+                                _ = try state.appendAssistantMessage(
+                                    finalText.isEmpty ? nil : finalText,
+                                    widgets: emittedWidgets
+                                )
+                            } catch {
+                                continuation.finish(throwing: error)
+                                return
+                            }
+                        }
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     func send(text: String) -> AsyncThrowingStream<TurnEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task { @MainActor in
@@ -32,7 +78,7 @@ final class Orchestrator: OrchestratorProtocol {
                     return
                 }
 
-                let request = await buildRequest(latestUserText: text)
+                let request = await buildRequest(latestUserText: text, isKickoff: false)
                 var streamedText = ""
                 var emittedWidgets: [WidgetIntent] = []
 
@@ -67,7 +113,7 @@ final class Orchestrator: OrchestratorProtocol {
         }
     }
 
-    private func buildRequest(latestUserText: String) async -> ModelRequest {
+    private func buildRequest(latestUserText: String?, isKickoff: Bool) async -> ModelRequest {
         let assembled = await context.prompt(
             for: ContextRequest(sessionId: state.session.id, goal: state.goal)
         )
@@ -80,7 +126,10 @@ final class Orchestrator: OrchestratorProtocol {
 
         \(assembled.systemPrompt)
         """
-        if let redirect = state.redirectNote(for: latestUserText) {
+        if isKickoff {
+            systemPrompt += "\n\nThis session has no messages yet. Open the conversation yourself with a single short turn, following the playbook for the current session goal. Ask exactly one question. Do not restate missing fields verbatim — ask naturally."
+        }
+        if let latestUserText, let redirect = state.redirectNote(for: latestUserText) {
             systemPrompt += "\n\nGuidance: \(redirect)"
         }
 

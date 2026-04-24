@@ -30,6 +30,7 @@ struct ChatView: View {
             }
         }
         .background(AppColor.backgroundPrimary.ignoresSafeArea())
+        .task { viewModel.primeIfNeeded() }
     }
 
     private func errorBanner(_ message: String) -> some View {
