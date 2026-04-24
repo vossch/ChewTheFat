@@ -39,17 +39,17 @@ struct ChewTheFatApp: App {
 private struct RootView: View {
     let environment: AppEnvironment
     @State private var coordinator: OnboardingCoordinator
-    @State private var onboardingChatViewModel: ChatViewModel?
-    @State private var sessionLoadError: String?
+    @State private var profileFREVM: ProfileFREViewModel
+    @State private var goalsFREVM: GoalsFREViewModel?
 
     init(environment: AppEnvironment) {
         self.environment = environment
         _coordinator = State(initialValue: OnboardingCoordinator(
             profile: environment.profile,
-            sessions: environment.sessions,
-            evaluator: environment.goalEvaluator,
+            goals: environment.goals,
             bootstrapper: environment.modelBootstrapper
         ))
+        _profileFREVM = State(initialValue: ProfileFREViewModel(profile: environment.profile))
     }
 
     var body: some View {
@@ -59,13 +59,28 @@ private struct RootView: View {
                 ProgressView()
             case .eula:
                 EULAView(onAccept: coordinator.acceptEULA)
-            case .bootstrap:
-                ModelBootstrapView(
-                    bootstrapper: environment.modelBootstrapper,
-                    onComplete: coordinator.bootstrapDidComplete
+            case .profileFRE:
+                ProfileFREView(
+                    viewModel: profileFREVM,
+                    onContinue: {
+                        goalsFREVM = makeGoalsFREVM()
+                        coordinator.profileFREDidComplete()
+                    }
                 )
-            case .chat(let session):
-                onboardingChatRoot(session: session)
+            case .goalsFRE:
+                if let vm = goalsFREVM ?? resumeGoalsVM() {
+                    GoalsFREView(
+                        viewModel: vm,
+                        onContinue: coordinator.goalsFREDidComplete
+                    )
+                } else {
+                    ProgressView()
+                }
+            case .downloadingAI:
+                DownloadingAIView(
+                    bootstrapper: environment.modelBootstrapper,
+                    onReady: coordinator.downloadDidComplete
+                )
             case .ready:
                 HomeShellView(environment: environment)
             }
@@ -74,28 +89,17 @@ private struct RootView: View {
         .environment(\.modelContext, environment.container.mainContext)
     }
 
-    @ViewBuilder
-    private func onboardingChatRoot(session: Session) -> some View {
-        let viewModel = onboardingChatVM(for: session)
-        if let viewModel {
-            ChatView(viewModel: viewModel, environment: environment)
-                .task(id: environment.ticker.tick) {
-                    await coordinator.recheckOnboardingCompletion()
-                }
-        } else if let sessionLoadError {
-            ContainerErrorView(error: SimpleError(message: sessionLoadError))
-        } else {
-            ProgressView()
-        }
+    private func makeGoalsFREVM() -> GoalsFREViewModel {
+        GoalsFREViewModel(
+            goals: environment.goals,
+            profile: environment.profile,
+            weightLog: environment.weightLog
+        )
     }
 
-    private func onboardingChatVM(for session: Session) -> ChatViewModel? {
-        if let existing = onboardingChatViewModel, existing.session.id == session.id {
-            return existing
-        }
-        let orchestrator = environment.makeOrchestrator(for: session)
-        let vm = ChatViewModel(orchestrator: orchestrator, session: session)
-        onboardingChatViewModel = vm
+    private func resumeGoalsVM() -> GoalsFREViewModel? {
+        let vm = makeGoalsFREVM()
+        goalsFREVM = vm
         return vm
     }
 }

@@ -7,110 +7,93 @@ final class OnboardingCoordinatorTests: XCTestCase {
         let env = try InMemoryEnvironment()
         let coordinator = OnboardingCoordinator(
             profile: env.profile,
-            sessions: env.sessions,
-            evaluator: env.evaluator,
+            goals: env.goals,
             bootstrapper: NullModelBootstrapper()
         )
         await coordinator.resolveInitialPhase()
         XCTAssertEqual(coordinator.phase, .eula)
     }
 
-    func testEULAAcceptedButModelNotReadyAdvancesToBootstrap() async throws {
+    func testEULAAcceptedButProfileEmptyAdvancesToProfileFRE() async throws {
         let env = try InMemoryEnvironment()
         try env.profile.acceptEULA()
         let coordinator = OnboardingCoordinator(
             profile: env.profile,
-            sessions: env.sessions,
-            evaluator: env.evaluator,
+            goals: env.goals,
             bootstrapper: StubBootstrapper(isReady: false)
         )
         await coordinator.resolveInitialPhase()
-        XCTAssertEqual(coordinator.phase, .bootstrap)
+        XCTAssertEqual(coordinator.phase, .profileFRE)
     }
 
-    func testEULAAndModelReadyAdvancesToChat() async throws {
+    func testProfileCompleteButNoGoalsAdvancesToGoalsFRE() async throws {
         let env = try InMemoryEnvironment()
         try env.profile.acceptEULA()
+        if let p = try env.profile.current() {
+            p.age = 35
+            p.heightCm = 175
+            p.sex = "male"
+            try env.profile.save(p)
+        }
         let coordinator = OnboardingCoordinator(
             profile: env.profile,
-            sessions: env.sessions,
-            evaluator: env.evaluator,
-            bootstrapper: NullModelBootstrapper()
+            goals: env.goals,
+            bootstrapper: StubBootstrapper(isReady: false)
         )
         await coordinator.resolveInitialPhase()
-        if case .chat(let session) = coordinator.phase {
-            XCTAssertEqual(session.goal, SessionGoal.onboarding.rawValue)
-        } else {
-            XCTFail("expected chat phase, got \(coordinator.phase)")
-        }
+        XCTAssertEqual(coordinator.phase, .goalsFRE)
     }
 
-    func testFullyOnboardedSkipsToReady() async throws {
+    func testFullyOnboardedButModelNotReadyShowsDownloading() async throws {
         let env = try InMemoryEnvironment()
         try env.completeOnboarding()
         let coordinator = OnboardingCoordinator(
             profile: env.profile,
-            sessions: env.sessions,
-            evaluator: env.evaluator,
+            goals: env.goals,
+            bootstrapper: StubBootstrapper(isReady: false)
+        )
+        await coordinator.resolveInitialPhase()
+        XCTAssertEqual(coordinator.phase, .downloadingAI)
+    }
+
+    func testFullyOnboardedAndModelReadySkipsToReady() async throws {
+        let env = try InMemoryEnvironment()
+        try env.completeOnboarding()
+        let coordinator = OnboardingCoordinator(
+            profile: env.profile,
+            goals: env.goals,
             bootstrapper: NullModelBootstrapper()
         )
         await coordinator.resolveInitialPhase()
         XCTAssertEqual(coordinator.phase, .ready)
     }
 
-    func testResumeReusesExistingOnboardingSession() async throws {
+    func testProfileFRECompletionAdvancesToGoalsFRE() async throws {
         let env = try InMemoryEnvironment()
         try env.profile.acceptEULA()
-        let first = try env.sessions.create(goal: .onboarding)
-
         let coordinator = OnboardingCoordinator(
             profile: env.profile,
-            sessions: env.sessions,
-            evaluator: env.evaluator,
-            bootstrapper: NullModelBootstrapper()
+            goals: env.goals,
+            bootstrapper: StubBootstrapper(isReady: false)
         )
         await coordinator.resolveInitialPhase()
-        guard case .chat(let session) = coordinator.phase else {
-            return XCTFail("expected chat phase")
-        }
-        XCTAssertEqual(session.id, first.id)
+        XCTAssertEqual(coordinator.phase, .profileFRE)
+
+        coordinator.profileFREDidComplete()
+        XCTAssertEqual(coordinator.phase, .goalsFRE)
     }
 
-    func testRecheckAdvancesWhenContractSatisfied() async throws {
+    func testGoalsFRECompletionJumpsToReadyIfModelOnDisk() async throws {
         let env = try InMemoryEnvironment()
-        try env.profile.acceptEULA()
-
         let coordinator = OnboardingCoordinator(
             profile: env.profile,
-            sessions: env.sessions,
-            evaluator: env.evaluator,
+            goals: env.goals,
             bootstrapper: NullModelBootstrapper()
         )
-        await coordinator.resolveInitialPhase()
-        guard case .chat = coordinator.phase else {
-            return XCTFail("expected chat phase")
-        }
-
-        // Fill in the remaining profile + goal fields on the EULA-accepted
-        // profile (rather than inserting a second UserProfile).
-        let existing = try XCTUnwrap(env.profile.current())
-        existing.age = 35
-        existing.heightCm = 175
-        existing.sex = "other"
-        existing.preferredUnits = "metric"
-        existing.activityLevel = "moderate"
-        try env.profile.save(existing)
-        try env.goals.save(UserGoals(
-            method: "manual",
-            weeklyChangeKg: -0.45,
-            calorieTarget: 2000,
-            proteinTargetG: 150,
-            carbsTargetG: 200,
-            fatTargetG: 70,
-            idealWeightKg: 75
-        ))
-
-        await coordinator.recheckOnboardingCompletion()
+        coordinator.goalsFREDidComplete()
+        // The ready transition is dispatched through a Task; give it a tick.
+        await Task.yield()
+        await Task.yield()
         XCTAssertEqual(coordinator.phase, .ready)
     }
 }

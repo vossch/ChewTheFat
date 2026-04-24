@@ -40,49 +40,11 @@ final class ChatViewModel {
     private let orchestrator: OrchestratorProtocol
     let session: Session
     private var sendTask: Task<Void, Never>?
-    private var kickoffTask: Task<Void, Never>?
-    private var hasPrimed = false
 
     init(orchestrator: OrchestratorProtocol, session: Session) {
         self.orchestrator = orchestrator
         self.session = session
         hydrateFromSession()
-    }
-
-    /// Fires an orchestrator kickoff turn when the session has no messages
-    /// yet, letting the model author the opening greeting itself. Safe to
-    /// call repeatedly — a guard prevents duplicate runs.
-    func primeIfNeeded() {
-        guard !hasPrimed, messages.isEmpty, session.messages.isEmpty, status == .idle else { return }
-        hasPrimed = true
-        status = .sending
-        let orchestrator = self.orchestrator
-        kickoffTask?.cancel()
-        kickoffTask = Task { [weak self] in
-            var assistantBubbleId: UUID?
-            do {
-                for try await event in orchestrator.kickoff() {
-                    guard let self else { return }
-                    if Task.isCancelled { return }
-                    switch event {
-                    case .textChunk(let chunk):
-                        self.status = .streaming
-                        assistantBubbleId = self.appendOrExtendAssistantText(chunk, id: assistantBubbleId)
-                    case .widget(let intent):
-                        self.status = .streaming
-                        self.messages.append(.widget(id: UUID(), intent: intent))
-                    case .toolCallStarted, .toolCallFinished, .completed:
-                        break
-                    }
-                }
-                guard let self else { return }
-                self.status = .idle
-            } catch {
-                guard let self else { return }
-                self.status = .error(error.localizedDescription)
-                self.hasPrimed = false
-            }
-        }
     }
 
     func send(_ text: String) {
