@@ -53,21 +53,11 @@ nonisolated final class MLXModelClient: ModelClientProtocol, @unchecked Sendable
     }
 
     func warmUp() async throws {
-        if await state.container != nil { return }
-        let downloader: Downloader = #hubDownloader(hubClient)
-        let tokenizerLoader: TokenizerLoader = #huggingFaceTokenizerLoader()
-        let container = try await LLMModelFactory.shared.loadContainer(
-            from: downloader,
-            using: tokenizerLoader,
-            configuration: configuration,
-            useLatest: false,
-            progressHandler: { _ in }
-        )
-        await state.set(container)
+        _ = try await loadedContainer()
     }
 
     func countTokens(_ text: String) async -> Int? {
-        guard let container = await state.container else { return nil }
+        guard let container = try? await loadedContainer() else { return nil }
         let ids = await container.encode(text)
         return ids.count
     }
@@ -76,11 +66,9 @@ nonisolated final class MLXModelClient: ModelClientProtocol, @unchecked Sendable
         _ request: ModelRequest
     ) -> AsyncThrowingStream<ModelStreamEvent, Error> {
         AsyncThrowingStream { continuation in
-            let task = Task { [state] in
+            let task = Task { [self] in
                 do {
-                    guard let container = await state.container else {
-                        throw Failure.notWarmedUp
-                    }
+                    let container = try await self.loadedContainer()
                     try await Self.run(
                         request: request,
                         container: container,
@@ -91,6 +79,25 @@ nonisolated final class MLXModelClient: ModelClientProtocol, @unchecked Sendable
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Returns the loaded container, loading it on first call. Concurrent
+    /// callers coalesce onto the same load task so weights are only pulled
+    /// once per process.
+    private func loadedContainer() async throws -> ModelContainer {
+        if let existing = await state.container { return existing }
+        let downloader: Downloader = #hubDownloader(hubClient)
+        let tokenizerLoader: TokenizerLoader = #huggingFaceTokenizerLoader()
+        let config = configuration
+        return try await state.load {
+            try await LLMModelFactory.shared.loadContainer(
+                from: downloader,
+                using: tokenizerLoader,
+                configuration: config,
+                useLatest: false,
+                progressHandler: { _ in }
+            )
         }
     }
 
@@ -167,12 +174,28 @@ nonisolated final class MLXModelClient: ModelClientProtocol, @unchecked Sendable
 }
 
 /// Small actor wrapper so the synchronous `stream(_:)` entry point can share
-/// container state without blocking its caller.
+/// container state without blocking its caller. The `load` closure is cached
+/// in-flight so concurrent callers coalesce onto the same task.
 private actor ContainerState {
     var container: ModelContainer?
+    private var loadTask: Task<ModelContainer, Error>?
 
-    func set(_ c: ModelContainer) {
-        container = c
+    func load(
+        _ loader: @Sendable @escaping () async throws -> ModelContainer
+    ) async throws -> ModelContainer {
+        if let container { return container }
+        if let loadTask { return try await loadTask.value }
+        let task = Task { try await loader() }
+        loadTask = task
+        do {
+            let loaded = try await task.value
+            self.container = loaded
+            self.loadTask = nil
+            return loaded
+        } catch {
+            self.loadTask = nil
+            throw error
+        }
     }
 }
 
