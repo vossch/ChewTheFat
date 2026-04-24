@@ -30,6 +30,8 @@ struct ChatView: View {
             }
         }
         .background(AppColor.backgroundPrimary.ignoresSafeArea())
+        .navigationTitle(viewModel.session.name)
+        .navigationBarTitleDisplayMode(.inline)
         .task { viewModel.primeIfNeeded() }
     }
 

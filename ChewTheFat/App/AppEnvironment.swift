@@ -21,11 +21,11 @@ final class AppEnvironment {
     let modelBootstrapper: ModelBootstrapperProtocol
     let toolRegistry: ToolCallDispatcher
     let ticker: ModelChangeTicker
-    private let preferences: AppPreferences
+    let preferences: AppPreferences
 
     init(
         container: ModelContainer,
-        preferences: AppPreferences = .default,
+        preferences: AppPreferences,
         usdaDB: USDAFoodDB? = nil,
         offsDB: OpenFoodFactsDB? = nil,
         modelClient: ModelClientProtocol = StubModelClient(),
@@ -58,7 +58,7 @@ final class AppEnvironment {
             usda: USDAFoodSource(db: usdaDB),
             openFoodFacts: OpenFoodFactsSource(db: offsDB),
             web: WebSearchFallback(),
-            webFallbackEnabled: { [preferences] in preferences.webSearchFallbackEnabled }
+            webFallbackEnabled: preferences.sendableFallbackReader
         )
         self.foodSearch = foodSearch
         self.knowledge = KnowledgeGraph()
@@ -126,6 +126,7 @@ final class AppEnvironment {
 
         return AppEnvironment(
             container: container,
+            preferences: AppPreferences(),
             usdaDB: usdaDB,
             offsDB: offsDB,
             modelClient: modelClient,
@@ -143,18 +144,76 @@ final class AppEnvironment {
     }
 
     static func preview() throws -> AppEnvironment {
-        try AppEnvironment(container: ModelContainerProvider.inMemory())
+        try AppEnvironment(
+            container: ModelContainerProvider.inMemory(),
+            preferences: AppPreferences(store: InMemoryPreferenceStore())
+        )
     }
 
     static func testing() throws -> AppEnvironment {
-        try AppEnvironment(container: ModelContainerProvider.inMemory())
+        try AppEnvironment(
+            container: ModelContainerProvider.inMemory(),
+            preferences: AppPreferences(store: InMemoryPreferenceStore())
+        )
     }
 }
 
-nonisolated struct AppPreferences: Sendable {
-    var webSearchFallbackEnabled: Bool
+/// User-adjustable preferences. Backed by a thread-safe store so the
+/// `FoodSearchRAG`'s `@Sendable` webFallbackEnabled closure can read it from
+/// any actor, while the UI binds to the @Observable wrapper for live updates.
+@MainActor
+@Observable
+final class AppPreferences {
+    @ObservationIgnored private let store: PreferenceStore
+    var webSearchFallbackEnabled: Bool {
+        didSet { store.webSearchFallbackEnabled = webSearchFallbackEnabled }
+    }
 
-    static let `default` = AppPreferences(webSearchFallbackEnabled: false)
+    init(store: PreferenceStore = UserDefaultsPreferenceStore()) {
+        self.store = store
+        self.webSearchFallbackEnabled = store.webSearchFallbackEnabled
+    }
+
+    /// Closure consumed by the `@Sendable` webFallbackEnabled hook on
+    /// `FoodSearchRAG`. Reads from the thread-safe store, not the @Observable
+    /// property (which is @MainActor).
+    nonisolated var sendableFallbackReader: @Sendable () -> Bool {
+        let store = self.store
+        return { store.webSearchFallbackEnabled }
+    }
+}
+
+/// Thread-safe boolean store for the sendable closures that consume preferences.
+nonisolated protocol PreferenceStore: AnyObject, Sendable {
+    var webSearchFallbackEnabled: Bool { get set }
+}
+
+nonisolated final class UserDefaultsPreferenceStore: PreferenceStore, @unchecked Sendable {
+    private let defaults: UserDefaults
+    private let key = "webSearchFallbackEnabled"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var webSearchFallbackEnabled: Bool {
+        get { defaults.bool(forKey: key) }
+        set { defaults.set(newValue, forKey: key) }
+    }
+}
+
+nonisolated final class InMemoryPreferenceStore: PreferenceStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _enabled: Bool
+
+    init(webSearchFallbackEnabled: Bool = false) {
+        self._enabled = webSearchFallbackEnabled
+    }
+
+    var webSearchFallbackEnabled: Bool {
+        get { lock.withLock { _enabled } }
+        set { lock.withLock { _enabled = newValue } }
+    }
 }
 
 private func tryOpen<DB>(

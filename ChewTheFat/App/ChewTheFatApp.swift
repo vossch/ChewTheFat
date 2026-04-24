@@ -39,7 +39,7 @@ struct ChewTheFatApp: App {
 private struct RootView: View {
     let environment: AppEnvironment
     @State private var coordinator: OnboardingCoordinator
-    @State private var chatViewModel: ChatViewModel?
+    @State private var onboardingChatViewModel: ChatViewModel?
     @State private var sessionLoadError: String?
 
     init(environment: AppEnvironment) {
@@ -67,7 +67,7 @@ private struct RootView: View {
             case .chat(let session):
                 onboardingChatRoot(session: session)
             case .ready:
-                readyChatRoot
+                HomeShellView(environment: environment)
             }
         }
         .task { await coordinator.resolveInitialPhase() }
@@ -76,7 +76,7 @@ private struct RootView: View {
 
     @ViewBuilder
     private func onboardingChatRoot(session: Session) -> some View {
-        let viewModel = chatViewModel(for: session)
+        let viewModel = onboardingChatVM(for: session)
         if let viewModel {
             ChatView(viewModel: viewModel, environment: environment)
                 .task(id: environment.ticker.tick) {
@@ -89,37 +89,98 @@ private struct RootView: View {
         }
     }
 
-    @ViewBuilder
-    private var readyChatRoot: some View {
-        if let chatViewModel {
-            ChatView(viewModel: chatViewModel, environment: environment)
-        } else if let sessionLoadError {
-            ContainerErrorView(error: SimpleError(message: sessionLoadError))
-        } else {
-            ProgressView()
-                .task { await prepareReadyChatSession() }
-        }
-    }
-
-    private func chatViewModel(for session: Session) -> ChatViewModel? {
-        if let existing = chatViewModel, existing.session.id == session.id {
+    private func onboardingChatVM(for session: Session) -> ChatViewModel? {
+        if let existing = onboardingChatViewModel, existing.session.id == session.id {
             return existing
         }
         let orchestrator = environment.makeOrchestrator(for: session)
         let vm = ChatViewModel(orchestrator: orchestrator, session: session)
-        chatViewModel = vm
+        onboardingChatViewModel = vm
         return vm
     }
+}
 
-    private func prepareReadyChatSession() async {
+/// Post-onboarding shell. Dashboard is the landing screen (US7) and pushes
+/// Chat / Settings via a NavigationStack. Each chat session gets its own
+/// `ChatViewModel` so switching sessions doesn't leak state.
+private struct HomeShellView: View {
+    let environment: AppEnvironment
+    @State private var dashboardVM: DashboardViewModel
+    @State private var path: [Route] = []
+    @State private var chatViewModels: [UUID: ChatViewModel] = [:]
+    @State private var loadError: String?
+
+    enum Route: Hashable {
+        case chat(sessionId: UUID)
+        case settings
+    }
+
+    init(environment: AppEnvironment) {
+        self.environment = environment
+        _dashboardVM = State(initialValue: DashboardViewModel(
+            sessions: environment.sessions,
+            weightLog: environment.weightLog
+        ))
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            DashboardView(
+                viewModel: dashboardVM,
+                environment: environment,
+                onSelectSession: { session in
+                    path.append(.chat(sessionId: session.id))
+                },
+                onStartNewChat: { goal in
+                    guard let session = createSession(goal: goal) else { return }
+                    path.append(.chat(sessionId: session.id))
+                },
+                onOpenSettings: {
+                    path.append(.settings)
+                }
+            )
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .chat(let id):
+                    chatRoute(for: id)
+                case .settings:
+                    SettingsView(environment: environment, preferences: environment.preferences)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chatRoute(for sessionId: UUID) -> some View {
+        if let vm = chatViewModel(for: sessionId) {
+            ChatView(viewModel: vm, environment: environment)
+        } else if let loadError {
+            ContainerErrorView(error: SimpleError(message: loadError))
+        } else {
+            ProgressView()
+        }
+    }
+
+    private func chatViewModel(for id: UUID) -> ChatViewModel? {
+        if let existing = chatViewModels[id] { return existing }
         do {
-            let nonOnboarding = try environment.sessions.list(limit: 20)
-                .first { $0.goal != SessionGoal.onboarding.rawValue }
-            let session = try nonOnboarding ?? environment.sessions.create(goal: .general)
+            guard let session = try environment.sessions.find(id: id) else { return nil }
             let orchestrator = environment.makeOrchestrator(for: session)
-            chatViewModel = ChatViewModel(orchestrator: orchestrator, session: session)
+            let vm = ChatViewModel(orchestrator: orchestrator, session: session)
+            chatViewModels[id] = vm
+            return vm
         } catch {
-            sessionLoadError = error.localizedDescription
+            loadError = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func createSession(goal: SessionGoal) -> Session? {
+        do {
+            return try environment.sessions.create(goal: goal)
+        } catch {
+            loadError = error.localizedDescription
+            return nil
         }
     }
 }
