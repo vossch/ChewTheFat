@@ -4,12 +4,18 @@ import SwiftData
 @main
 struct ChewTheFatApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var environment: AppEnvironment?
     @State private var loadError: Error?
 
     var body: some Scene {
         WindowGroup {
             rootView
+                .onChange(of: scenePhase) { _, newPhase in
+                    guard newPhase == .active, let environment else { return }
+                    environment.recomputeTrendsIfStale()
+                    environment.runDailySummaryIfNeeded()
+                }
         }
     }
 
@@ -29,7 +35,9 @@ struct ChewTheFatApp: App {
         do {
             let env = try AppEnvironment.live()
             environment = env
+            AppDelegate.environmentResolver = { env }
             Task.detached { await env.warmUpModelIfReady() }
+            await env.notificationScheduler.sync(with: env.preferences)
         } catch {
             loadError = error
         }
@@ -86,8 +94,8 @@ private struct RootView: View {
             }
         }
         .task { await coordinator.resolveInitialPhase() }
-        .onChange(of: coordinator.phase, initial: true) { _, newPhase in
-            if newPhase == .goalsFRE, goalsFREVM == nil {
+        .task(id: coordinator.phase) {
+            if coordinator.phase == .goalsFRE, goalsFREVM == nil {
                 goalsFREVM = makeGoalsFREVM()
             }
         }
@@ -112,6 +120,7 @@ private struct HomeShellView: View {
     @State private var path: [Route] = []
     @State private var chatViewModels: [UUID: ChatViewModel] = [:]
     @State private var loadError: String?
+    @State private var hasAttemptedAutoTrigger = false
 
     enum Route: Hashable {
         case chat(sessionId: UUID)
@@ -150,6 +159,27 @@ private struct HomeShellView: View {
                     SettingsView(environment: environment, preferences: environment.preferences)
                 }
             }
+        }
+        .task { runAutoTriggerIfNeeded() }
+    }
+
+    /// On first appearance after launch, ask `SessionTrigger` whether the
+    /// time-of-day suggests an auto-seeded session (morning weigh-in, mid-day
+    /// meal log, etc.). Suppresses double-fires within the same slot via the
+    /// preference-stored `lastTriggeredSlot`.
+    private func runAutoTriggerIfNeeded() {
+        guard !hasAttemptedAutoTrigger else { return }
+        hasAttemptedAutoTrigger = true
+
+        let trigger = environment.evaluateTrigger()
+        guard trigger.shouldAutoStart else { return }
+        guard environment.preferences.lastTriggeredSlot != trigger.slotId else { return }
+
+        do {
+            guard let session = try environment.createTriggeredSession() else { return }
+            path.append(.chat(sessionId: session.id))
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 

@@ -11,8 +11,8 @@ struct ChatView: View {
             MessageListView(viewModel: viewModel, environment: environment)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            SuggestedRepliesView(suggestions: []) { suggestion in
-                draft = suggestion
+            SuggestedRepliesView(suggestions: viewModel.currentSuggestions) { suggestion in
+                viewModel.send(suggestion)
             }
 
             ChatInputBar(

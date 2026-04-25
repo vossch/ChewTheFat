@@ -44,10 +44,32 @@ struct SettingsView: View {
             ) {
                 Toggle("Web search fallback", isOn: $preferences.webSearchFallbackEnabled)
             }
+
+            Section(
+                header: Text("Notifications"),
+                footer: Text(
+                    "Daily reminders to log weight and meals. When you flip the first one on we'll ask for permission."
+                )
+            ) {
+                Toggle("Morning weigh-in (8:00 AM)", isOn: $preferences.weighInNotificationsEnabled)
+                    .onChange(of: preferences.weighInNotificationsEnabled) { _, _ in syncNotifications() }
+                Toggle("Breakfast (9:00 AM)", isOn: $preferences.breakfastNotificationsEnabled)
+                    .onChange(of: preferences.breakfastNotificationsEnabled) { _, _ in syncNotifications() }
+                Toggle("Lunch (12:30 PM)", isOn: $preferences.lunchNotificationsEnabled)
+                    .onChange(of: preferences.lunchNotificationsEnabled) { _, _ in syncNotifications() }
+                Toggle("Dinner (6:30 PM)", isOn: $preferences.dinnerNotificationsEnabled)
+                    .onChange(of: preferences.dinnerNotificationsEnabled) { _, _ in syncNotifications() }
+            }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task { loadUnits() }
+    }
+
+    private func syncNotifications() {
+        let scheduler = environment.notificationScheduler
+        let prefs = preferences
+        Task { await scheduler.sync(with: prefs) }
     }
 
     private func loadUnits() {

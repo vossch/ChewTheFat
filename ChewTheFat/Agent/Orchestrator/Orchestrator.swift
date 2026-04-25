@@ -7,19 +7,22 @@ final class Orchestrator: OrchestratorProtocol {
     private let turn: TurnHandler
     private let resolver: WidgetIntentResolver
     private let toolSchemas: [ToolSchema]
+    private let memoryWriter: MemoryWriter?
 
     init(
         state: SessionStateManager,
         context: ContextManager,
         turn: TurnHandler,
         resolver: WidgetIntentResolver,
-        toolSchemas: [ToolSchema]
+        toolSchemas: [ToolSchema],
+        memoryWriter: MemoryWriter? = nil
     ) {
         self.state = state
         self.context = context
         self.turn = turn
         self.resolver = resolver
         self.toolSchemas = toolSchemas
+        self.memoryWriter = memoryWriter
     }
 
     func send(text: String) -> AsyncThrowingStream<TurnEvent, Error> {
@@ -35,6 +38,7 @@ final class Orchestrator: OrchestratorProtocol {
                 let request = await buildRequest(latestUserText: text, isKickoff: false)
                 var streamedText = ""
                 var emittedWidgets: [WidgetIntent] = []
+                var toolOutcomes: [ToolCallOutcome] = []
 
                 for try await event in turn.run(initialRequest: request) {
                     switch event {
@@ -44,9 +48,11 @@ final class Orchestrator: OrchestratorProtocol {
                         if let resolved = resolver.resolve(intent) {
                             emittedWidgets.append(resolved)
                         }
-                    case .toolCallStarted, .toolCallFinished:
+                    case .toolCallStarted:
                         // intentionally not surfaced to UI
                         break
+                    case .toolCallFinished(let outcome):
+                        toolOutcomes.append(outcome)
                     case .completed(let text, _, _):
                         let finalText = text.isEmpty ? streamedText : text
                         do {
@@ -61,6 +67,7 @@ final class Orchestrator: OrchestratorProtocol {
                     }
                     continuation.yield(event)
                 }
+                memoryWriter?.observe(userText: text, toolOutcomes: toolOutcomes)
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }

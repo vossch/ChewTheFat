@@ -33,6 +33,10 @@ final class ChatViewModel {
 
     private(set) var messages: [DisplayMessage] = []
     private(set) var status: Status = .idle
+    /// Quick-reply chips stamped on the latest assistant turn (M7 seeded
+    /// meal/weight prompts). Cleared once the user replies; not refilled by
+    /// streaming model output (suggestions only come from explicit seeds).
+    private(set) var currentSuggestions: [String] = []
     /// True while the orchestrator has accepted the turn but no text chunk
     /// has arrived yet. UI binds this to a typing indicator per FR-027.
     var isTyping: Bool { status == .sending }
@@ -52,6 +56,7 @@ final class ChatViewModel {
         guard !trimmed.isEmpty, status != .sending, status != .streaming else { return }
 
         messages.append(.text(id: UUID(), author: .user, body: trimmed))
+        currentSuggestions = []
         status = .sending
 
         let orchestrator = self.orchestrator
@@ -116,6 +121,11 @@ final class ChatViewModel {
                     messages.append(.widget(id: row.id, intent: intent))
                 }
             }
+        }
+        // Surface any suggestion chips stamped on the most recent assistant
+        // turn; once the user replies, they're cleared by `send(_:)`.
+        if let latestAssistant = ordered.last(where: { $0.author == "assistant" }) {
+            currentSuggestions = latestAssistant.suggestions
         }
     }
 

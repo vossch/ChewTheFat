@@ -4,6 +4,7 @@ import SwiftData
 @MainActor
 struct WeightLogRepository {
     let context: ModelContext
+    var onChange: (@MainActor () -> Void)? = nil
 
     func log(
         weightKg: Double,
@@ -18,6 +19,7 @@ struct WeightLogRepository {
         )
         context.insert(entry)
         try context.save()
+        onChange?()
         return entry
     }
 
