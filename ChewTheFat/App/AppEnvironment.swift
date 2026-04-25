@@ -67,10 +67,52 @@ final class AppEnvironment {
         registry.register(FoodSearchTool(rag: foodSearch))
         registry.register(LookupKnowledgeTool(graph: self.knowledge))
         registry.register(LogFoodTool(foodLog: foodLog, foodCatalog: foodCatalog, context: ctx))
-        registry.register(LogWeightTool(weightLog: weightLog))
+        registry.register(LogWeightTool(weightLog: weightLog, goals: goals))
         registry.register(SetGoalsTool(goals: goals))
         registry.register(SetProfileInfoTool(profile: profile))
         self.toolRegistry = registry
+    }
+
+    /// Creates a new session and, for `.logWeight`, seeds it with a
+    /// system-authored "Time to weigh in" turn + a weigh-in picker widget.
+    /// UI calls this rather than `sessions.create(goal:)` directly so the
+    /// seed logic lives in one place.
+    func createSession(goal: SessionGoal) throws -> Session {
+        let session = try sessions.create(goal: goal)
+        if goal == .logWeight {
+            try seedWeighInPrompt(on: session)
+        }
+        return session
+    }
+
+    private func seedWeighInPrompt(on session: Session) throws {
+        let lastEntry = try? weightLog.latest()
+        let currentProfile = try? profile.current()
+        let units = PreferredUnitSystem(storedValue: currentProfile?.preferredUnits)
+        let suggestions = WeightLogSuggestions.aroundLatest(
+            lastEntryKg: lastEntry?.weightKg,
+            units: units
+        )
+        let payload = WeightLogPromptPayload(
+            suggestionsKg: suggestions,
+            lastEntryKg: lastEntry?.weightKg,
+            preferredUnits: units.rawValue
+        )
+        let widget = WidgetIntent.weightLogPrompt(payload)
+        let message = Message(
+            author: "assistant",
+            textContent: "Time to weigh in. Where are you today?"
+        )
+        try sessions.appendMessage(message, to: session)
+        let encoded = try JSONEncoder().encode(payload)
+        let widgetRow = MessageWidget(
+            order: 0,
+            type: widget.type,
+            payload: encoded,
+            message: message
+        )
+        container.mainContext.insert(widgetRow)
+        try container.mainContext.save()
     }
 
     func makeOrchestrator(for session: Session) -> Orchestrator {

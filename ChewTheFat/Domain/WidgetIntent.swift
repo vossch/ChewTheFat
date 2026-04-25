@@ -4,6 +4,7 @@ nonisolated enum WidgetIntent: Hashable, Sendable, Codable {
     case mealCard(MealCardPayload)
     case macroChart(MacroChartPayload)
     case weightGraph(WeightGraphPayload)
+    case weightLogPrompt(WeightLogPromptPayload)
     case quickLog(QuickLogPayload)
 
     var type: String {
@@ -11,6 +12,7 @@ nonisolated enum WidgetIntent: Hashable, Sendable, Codable {
         case .mealCard: return "mealCard"
         case .macroChart: return "macroChart"
         case .weightGraph: return "weightGraph"
+        case .weightLogPrompt: return "weightLogPrompt"
         case .quickLog: return "quickLog"
         }
     }
@@ -33,6 +35,12 @@ nonisolated struct WeightGraphPayload: Hashable, Sendable, Codable {
         let start: Date
         let end: Date
     }
+}
+
+nonisolated struct WeightLogPromptPayload: Hashable, Sendable, Codable {
+    let suggestionsKg: [Double]
+    let lastEntryKg: Double?
+    let preferredUnits: String
 }
 
 nonisolated struct QuickLogPayload: Hashable, Sendable, Codable {

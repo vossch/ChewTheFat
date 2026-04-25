@@ -6,6 +6,7 @@ enum AppIcon {
 
     static let food = "fork.knife"
     static let weight = "scalemass"
+    static let weighIn = "gauge.with.needle"
     static let chart = "chart.xyaxis.line"
     static let target = "target"
     static let flame = "flame.fill"

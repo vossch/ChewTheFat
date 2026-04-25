@@ -18,7 +18,7 @@ struct WidgetIntentResolver {
             }
             guard !valid.isEmpty else { return nil }
             return .mealCard(MealCardPayload(loggedFoodIds: valid, mealType: payload.mealType, date: payload.date))
-        case .macroChart, .weightGraph, .quickLog:
+        case .macroChart, .weightGraph, .weightLogPrompt, .quickLog:
             return intent
         }
     }

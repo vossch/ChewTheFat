@@ -68,7 +68,7 @@ private struct RootView: View {
                     }
                 )
             case .goalsFRE:
-                if let vm = goalsFREVM ?? resumeGoalsVM() {
+                if let vm = goalsFREVM {
                     GoalsFREView(
                         viewModel: vm,
                         onContinue: coordinator.goalsFREDidComplete
@@ -86,6 +86,11 @@ private struct RootView: View {
             }
         }
         .task { await coordinator.resolveInitialPhase() }
+        .onChange(of: coordinator.phase, initial: true) { _, newPhase in
+            if newPhase == .goalsFRE, goalsFREVM == nil {
+                goalsFREVM = makeGoalsFREVM()
+            }
+        }
         .environment(\.modelContext, environment.container.mainContext)
     }
 
@@ -95,12 +100,6 @@ private struct RootView: View {
             profile: environment.profile,
             weightLog: environment.weightLog
         )
-    }
-
-    private func resumeGoalsVM() -> GoalsFREViewModel? {
-        let vm = makeGoalsFREVM()
-        goalsFREVM = vm
-        return vm
     }
 }
 
@@ -181,7 +180,7 @@ private struct HomeShellView: View {
 
     private func createSession(goal: SessionGoal) -> Session? {
         do {
-            return try environment.sessions.create(goal: goal)
+            return try environment.createSession(goal: goal)
         } catch {
             loadError = error.localizedDescription
             return nil

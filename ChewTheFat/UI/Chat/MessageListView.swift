@@ -41,7 +41,13 @@ struct MessageListView: View {
             MessageBubble(author: author, text: body)
         case .widget(_, let intent):
             HStack {
-                WidgetRenderer(intent: intent, environment: environment)
+                WidgetRenderer(
+                    intent: intent,
+                    environment: environment,
+                    onReply: { [weak viewModel] reply in
+                        viewModel?.send(reply)
+                    }
+                )
                 Spacer(minLength: 0)
             }
         }

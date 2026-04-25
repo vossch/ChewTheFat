@@ -9,6 +9,7 @@ import SwiftUI
 struct WidgetRenderer: View {
     let intent: WidgetIntent
     let environment: AppEnvironment
+    var onReply: ((String) -> Void)? = nil
 
     var body: some View {
         switch intent {
@@ -20,6 +21,11 @@ struct WidgetRenderer: View {
             WeightGraphView.live(
                 range: payload.dateRange.start...payload.dateRange.end,
                 environment: environment
+            )
+        case .weightLogPrompt(let payload):
+            WeightLogPromptView(
+                viewModel: WeightLogPromptViewModel(payload: payload),
+                onPick: { value in onReply?(value) }
             )
         case .quickLog:
             EmptyView()
@@ -43,6 +49,9 @@ enum WidgetIntentDecoder {
         case "weightGraph":
             guard let payload = try? decoder.decode(WeightGraphPayload.self, from: row.payload) else { return nil }
             return .weightGraph(payload)
+        case "weightLogPrompt":
+            guard let payload = try? decoder.decode(WeightLogPromptPayload.self, from: row.payload) else { return nil }
+            return .weightLogPrompt(payload)
         case "quickLog":
             guard let payload = try? decoder.decode(QuickLogPayload.self, from: row.payload) else { return nil }
             return .quickLog(payload)

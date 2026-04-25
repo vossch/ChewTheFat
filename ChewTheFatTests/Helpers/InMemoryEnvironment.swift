@@ -61,7 +61,7 @@ struct InMemoryEnvironment {
             assembler: assembler
         )
         let dispatcher = ToolCallDispatcher()
-        dispatcher.register(LogWeightTool(weightLog: weightLog))
+        dispatcher.register(LogWeightTool(weightLog: weightLog, goals: goals))
         dispatcher.register(SetGoalsTool(goals: goals))
         dispatcher.register(SetProfileInfoTool(profile: profile))
         let turn = TurnHandler(model: modelClient, dispatcher: dispatcher)

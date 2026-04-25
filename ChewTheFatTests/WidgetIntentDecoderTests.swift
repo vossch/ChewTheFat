@@ -37,6 +37,15 @@ final class WidgetIntentDecoderTests: XCTestCase {
         try assertRoundTrip(intent)
     }
 
+    func testWeightLogPrompt_roundTrip() throws {
+        let intent = WidgetIntent.weightLogPrompt(WeightLogPromptPayload(
+            suggestionsKg: [88.4, 88.2, 88.0, 87.8, 87.6],
+            lastEntryKg: 88.0,
+            preferredUnits: "metric"
+        ))
+        try assertRoundTrip(intent)
+    }
+
     func testUnknownType_returnsNil() {
         let row = MessageWidget(order: 0, type: "unknownThing", payload: Data())
         XCTAssertNil(WidgetIntentDecoder.decode(row))
@@ -55,6 +64,8 @@ final class WidgetIntentDecoderTests: XCTestCase {
             row = MessageWidget(order: 0, type: "macroChart", payload: try JSONEncoder().encode(p))
         case .weightGraph(let p):
             row = MessageWidget(order: 0, type: "weightGraph", payload: try JSONEncoder().encode(p))
+        case .weightLogPrompt(let p):
+            row = MessageWidget(order: 0, type: "weightLogPrompt", payload: try JSONEncoder().encode(p))
         case .quickLog(let p):
             row = MessageWidget(order: 0, type: "quickLog", payload: try JSONEncoder().encode(p))
         }
